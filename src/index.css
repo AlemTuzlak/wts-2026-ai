@@ -36,23 +36,25 @@ body,
 .hud-counter,
 .hud-timer {
   position: absolute;
-  bottom: 24px;
+  bottom: 20px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  /* A soft cream pill keeps the numbers readable on sky, water and wood. */
+  background: rgba(238, 235, 212, 0.72);
+  box-shadow: 0 1px 6px rgba(17, 17, 17, 0.18);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.08em;
   font-size: 14px;
   font-weight: 400;
   color: #111111;
-  text-shadow:
-    0 0 4px #eeebd4,
-    0 1px 2px #eeebd4;
   opacity: 0.92;
 }
 
 .hud-counter {
-  right: 28px;
+  right: 24px;
 }
 .hud-timer {
-  left: 28px;
+  left: 24px;
 }
 .hud-timer.is-over {
   color: #d3481b;

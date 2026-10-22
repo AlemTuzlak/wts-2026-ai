@@ -60,7 +60,7 @@ const serverResponseLines = [
   'const { readable, writable } =',
   '  new TransformStream()',
   'const writer = writable.getWriter()',
-  'void relay()',
+  'void relay(writer)',
   'return new Response(readable, {',
   '  headers: {',
   "    'Content-Type':",
@@ -73,7 +73,7 @@ const serverResponseLines = [
 const browserResponseLines = [
   'const events = readSse(response.body)',
   'let completed = false',
-  'stream: for await (const event of events) {',
+  'for await (const event of events) {',
   '  switch (event.type) {',
   "    case 'response.output_text.delta':",
   "      if (typeof event.delta === 'string')",
@@ -81,12 +81,13 @@ const browserResponseLines = [
   '      break',
   "    case 'response.completed':",
   '      completed = true',
-  '      break stream',
+  '      break',
   "    case 'response.failed':",
   "    case 'response.incomplete':",
   "    case 'error':",
   "      throw Error('Provider failed')",
   '  }',
+  '  if (completed) break',
   '}',
   'if (!completed)',
   "  throw Error('Stream ended early')",
@@ -180,7 +181,7 @@ const scenes = [
           "    useState('')",
           '  // send is defined here, next.',
           '  return (',
-          '    <form action={send}>',
+          '    <form onSubmit={send}>',
           '      <input',
           '        name="prompt"',
           '        required',
@@ -194,7 +195,11 @@ const scenes = [
           '}',
         ],
         [
-          'async function send(data) {',
+          'async function send(event) {',
+          '  event.preventDefault()',
+          '  const data = new FormData(',
+          '    event.currentTarget',
+          '  )',
           "  setAnswer('')",
           '  const content = String(',
           "    data.get('prompt')",
@@ -213,7 +218,7 @@ const scenes = [
           '  }',
         ],
         [
-          'async function send(data) {',
+          'async function send(event) {',
           '  //... previous slide code',
           ...browserFetchLines.map((line) => `  ${line}`),
           '  const events = readSse(response.body)',
@@ -289,7 +294,7 @@ const scenes = [
           '}',
         ],
         [
-          'async function relay() {',
+          'async function relay(writer) {',
           '  try {',
           '    for await (',
           '      const bytes of upstream.body',
@@ -326,8 +331,8 @@ const scenes = [
       titlesSteps: ['Handle each response event', 'Read OpenAI JSON events'],
       linesSteps: [
         [
-          'async function send(data) {',
-          '  //... previous slide code',
+          'async function send(event) {',
+          '  // ... previous frontend code',
           ...browserResponseLines.map((line) => `  ${line}`),
           '}',
         ],
@@ -367,7 +372,7 @@ const scenes = [
     steps: 1,
     title: 'Send client tool definitions',
     lines: [
-      'async function send(data) {',
+      'async function send(event) {',
       '  //... previous slide code',
       '  const clientTools = [{',
       "    type: 'function',",
@@ -463,10 +468,11 @@ const scenes = [
     title: 'What if we need middleware?',
     steps: 1,
     notes:
-      'The harbor master follows the run lifecycle. Middleware can observe or change work at lifecycle hooks. The ledger shows run start, model call, tool call, stream chunk and run end. These are hook examples, not a fixed or exhaustive event order. This is not a gate or a packet trace.',
+      'The harbor master follows the run lifecycle. The ledger shows real ChatMiddleware hooks in run order: onConfig, onStart, onChunk, onBeforeToolCall, onAfterToolCall and onFinish. onConfig runs once at the start and again before each model call. onChunk runs for every chunk. Exactly one of onFinish, onAbort or onError ends a run. The list is not complete: onUsage, onIteration and more also exist.',
   },
   {
     id: 'middleware-cache',
+    worldId: 'middleware-cache',
     camera: mapCam.codeWall,
     form: 'code',
     halfPanel: true,
@@ -484,16 +490,19 @@ const scenes = [
       '})',
       '',
       'chat({ ...options,',
-      '  middleware: [cache],',
+      '  middleware: [',
+      '    cache,',
+      '  ],',
       '})',
     ],
-    highlight: [9],
+    highlight: [10],
     note: 'Module scope. Cache a stable read-only tool.',
     notes:
       'This is an addition to the existing Server. options means its existing chat options. All middleware instances are created outside POST and reused across requests. docs_search is illustrative: the docs MCP server must expose a stable public read-only search tool. Do not cache the clocks. The default cache is process-local.',
   },
   {
     id: 'middleware-telemetry',
+    worldId: 'middleware-cache',
     camera: mapCam.codeWall,
     form: 'code',
     halfPanel: true,
@@ -513,7 +522,8 @@ const scenes = [
       '',
       'chat({ ...options,',
       '  middleware: [',
-      '    telemetry, cache,',
+      '    telemetry,',
+      '    cache,',
       '  ],',
       '})',
     ],
@@ -524,6 +534,7 @@ const scenes = [
   },
   {
     id: 'middleware-persistence',
+    worldId: 'middleware-cache',
     camera: mapCam.codeWall,
     form: 'code',
     halfPanel: true,
@@ -542,7 +553,9 @@ const scenes = [
       '',
       'chat({ ...options,',
       '  middleware: [',
-      '    persistence, telemetry, cache,',
+      '    persistence,',
+      '    telemetry,',
+      '    cache,',
       '  ],',
       '})',
     ],
@@ -553,6 +566,7 @@ const scenes = [
   },
   {
     id: 'middleware-memory',
+    worldId: 'middleware-cache',
     camera: mapCam.codeWall,
     form: 'code',
     halfPanel: true,
@@ -575,18 +589,21 @@ const scenes = [
       '',
       'chat({ ...options,',
       '  middleware: [',
-      '    persistence, memory,',
-      '    telemetry, cache,',
+      '    persistence,',
+      '    memory,',
+      '    telemetry,',
+      '    cache,',
       '  ],',
       '})',
     ],
-    highlight: [14],
+    highlight: [15],
     note: 'Single-user thread memory. Lost on restart.',
     notes:
       'Reuse this module-scope memory instance. The inMemory adapter uses lexical recall and stores raw turns. It requires no embeddings, model call or external service. This is a single-user demo scoped to threadId. Production code must authorize thread ownership and derive user or tenant scope on Server. It does not share memory across different thread IDs. Keep the earlier persistence, telemetry and cache instances.',
   },
   {
     id: 'middleware-compaction',
+    worldId: 'middleware-cache',
     camera: mapCam.codeWall,
     form: 'code',
     halfPanel: true,
@@ -604,15 +621,59 @@ const scenes = [
       '',
       'chat({ ...options,',
       '  middleware: [',
-      '    persistence, memory,',
-      '    compaction, telemetry, cache,',
+      '    persistence,',
+      '    memory,',
+      '    compaction,',
+      '    telemetry,',
+      '    cache,',
       '  ],',
       '})',
     ],
-    highlight: [10],
+    highlight: [11],
     note: 'Evict old messages. Keep the stored transcript.',
     notes:
       'Create compaction once at module scope. The default evictOldest strategy makes no extra model call. It changes the provider message context, not the stored transcript. System prompts, including recalled memory, are outside this message budget. The snippet continues the same existing chat options and middleware instances.',
+  },
+  {
+    id: 'computer-use',
+    worldId: 'middleware-cache',
+    camera: mapCam.codeWall,
+    form: 'code',
+    halfPanel: true,
+    splitSide: 'center',
+    lang: 'ts',
+    steps: 1,
+    title: 'What if we want the agent to run our computer?',
+    lines: [
+      'import { createComputerUse }',
+      "  from '@tanstack/ai-computer-use'",
+      'import { localComputer }',
+      "  from '@tanstack/ai-computer-local'",
+      '',
+      'const computerUse = createComputerUse({',
+      '  driver: localComputer(),',
+      '})',
+      '',
+      'chat({ ...options,',
+      '  tools: [',
+      '    ...options.tools,',
+      '    ...computerUse.tools,',
+      '  ],',
+      '  middleware: [',
+      '    persistence,',
+      '    memory,',
+      '    compaction,',
+      '    telemetry,',
+      '    cache,',
+      '    computerUse.middleware,',
+      '  ],',
+      '  interrupts: [computerUse.interrupt],',
+      '})',
+    ],
+    highlight: [12, 20, 22],
+    note: 'Real mouse and keys. Watch it work.',
+    notes:
+      'Continue the same module-scope Server setup. localComputer comes from @tanstack/ai-computer-local and uses @jitsi/robotjs. On macOS, give the terminal the Accessibility and Screen Recording permissions. The model moves the real mouse, presses real keys and reads the main screen, so watch it. For a safer machine, swap the driver for sandboxComputer or playwrightComputer. One computer serves one conversation at a time. The middleware stops the rest of a turn after a failed action and runs the OpenAI safety checks. The interrupt asks a person to approve a flagged action, so the client adds computerSafetyCheck to its useChat interrupts. gpt-5.5 supports the computer tool. Pass a stable threadId.',
   },
   {
     id: 'close',
@@ -841,7 +902,9 @@ function ChatForm() {
   const [answer, setAnswer] = useState('')
   const [error, setError] = useState('')
 
-  async function send(data) {
+  async function send(event) {
+    event.preventDefault()
+    const data = new FormData(event.currentTarget)
     if (busy.current) return
     busy.current = true
     setPending(true)
@@ -918,7 +981,7 @@ function ChatForm() {
   }
 
   return (
-    <form action={send}>
+    <form onSubmit={send}>
       <input name="prompt" required />
       <button type="submit" disabled={pending}>Send</button>
       <p>{answer}</p>
@@ -1088,30 +1151,26 @@ export async function POST(request) {
 
 const tanstackToolClient = String.raw`import { useChat } from '@tanstack/ai-react'
 import { fetchServerSentEvents } from '@tanstack/ai-client'
-import { toolDefinition } from '@tanstack/ai'
-import { z } from 'zod'
-
-const browserTimeZone = toolDefinition({
-  name: 'get_browser_time_zone',
-  description: 'Read the browser time zone.',
-  inputSchema: z.object({}),
-}).client(() => ({
-  timeZone: Intl.DateTimeFormat()
-    .resolvedOptions().timeZone,
-}))
+import { browserTimeZone, serverTime } from './tools'
 
 function ChatForm() {
   const {
     messages, sendMessage, isLoading, error,
   } = useChat({
     connection: fetchServerSentEvents('/api/chat'),
-    tools: [browserTimeZone],
+    tools: [
+      browserTimeZone.client(() => ({
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      })),
+      serverTime,
+    ],
   })
-  async function send(data) {
-    await sendMessage(String(data.get('prompt')))
-  }
   return (
-    <form action={send}>
+    <form onSubmit={event => {
+      event.preventDefault()
+      const data = new FormData(event.currentTarget)
+      sendMessage(String(data.get('prompt')))
+    }}>
       <input name="prompt" required />
       <button type="submit" disabled={isLoading}>
         Send
@@ -1139,23 +1198,42 @@ function ChatForm() {
   )
 }`
 
+const tanstackToolLessonClient = String.raw`import { useChat } from '@tanstack/ai-react'
+import { fetchServerSentEvents } from '@tanstack/ai-client'
+import { browserTimeZone, serverTime } from './tools'
+
+function ChatForm() {
+  const { messages } = useChat({
+    connection: fetchServerSentEvents('/api/chat'),
+    tools: [
+      browserTimeZone.client(() => ({
+        timeZone: Intl.DateTimeFormat()
+          .resolvedOptions().timeZone,
+      })),
+      serverTime,
+    ],
+  })
+  // Earlier form, text, and error UI omitted.
+  return messages.map(message => (
+    <div key={message.id}>
+      {message.parts.map(part =>
+        part.type === 'tool-call' && (
+          <p key={part.id}>
+            {part.name}: {part.state}{' '}
+            {part.output !== undefined && (
+              <code>{JSON.stringify(part.output)}</code>
+            )}
+          </p>
+        ))}
+    </div>
+  ))
+}`
+
 const tanstackToolServer = String.raw`import {
-  chat, toolDefinition, toServerSentEventsResponse,
+  chat, toServerSentEventsResponse,
 } from '@tanstack/ai'
 import { openaiText } from '@tanstack/ai-openai'
-import { z } from 'zod'
-
-const browserTimeZone = toolDefinition({
-  name: 'get_browser_time_zone',
-  description: 'Read the browser time zone.',
-  inputSchema: z.object({}),
-})
-
-const serverTime = toolDefinition({
-  name: 'get_server_time',
-  description: 'Read the server time in UTC.',
-  inputSchema: z.object({}),
-}).server(() => ({ utc: new Date().toISOString() }))
+import { browserTimeZone, serverTime } from './tools'
 
 export async function POST(request) {
   const {
@@ -1165,7 +1243,10 @@ export async function POST(request) {
   const stream = chat({
     adapter: openaiText('gpt-5.5'),
     messages, threadId, runId, parentRunId, resume,
-    tools: [browserTimeZone, serverTime],
+    tools: [
+      browserTimeZone,
+      serverTime.server(() => ({ utc: new Date().toISOString() })),
+    ],
     abortController,
   })
   return toServerSentEventsResponse(
@@ -1294,7 +1375,9 @@ function ChatForm() {
     })))
   }
 
-  async function send(data) {
+  async function send(event) {
+    event.preventDefault()
+    const data = new FormData(event.currentTarget)
     if (busy.current) return
     busy.current = true
     setPending(true)
@@ -1399,7 +1482,7 @@ function ChatForm() {
   }
 
   return (
-    <form action={send}>
+    <form onSubmit={send}>
       <input name="prompt" required />
       <button type="submit" disabled={pending}>Send</button>
       <p>{answer}</p>
@@ -1521,35 +1604,15 @@ export const serverTime = toolDefinition({
 
 const tanstackApprovalClient = tanstackToolClient
   .replace(
-    "import { toolDefinition } from '@tanstack/ai'\nimport { z } from 'zod'",
-    "import { browserTimeZone, serverTime } from './tools'",
-  )
-  .replace(
-    tanstackToolClient.slice(
-      tanstackToolClient.indexOf('const browserTimeZone'),
-      tanstackToolClient.indexOf('function ChatForm'),
-    ),
-    '',
-  )
-  .replace(
     '    messages, sendMessage, isLoading, error,',
     '    messages, sendMessage, isLoading, error,\n    interrupts, resuming,',
   )
   .replace(
-    'tools: [browserTimeZone]',
-    String.raw`tools: [
-      browserTimeZone.client(() => ({
-        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      })),
-      serverTime,
-    ]`,
-  )
-  .replace(
-    '  async function send(data) {',
+    '  return (',
     String.raw`  const approval = interrupts.find(
     interrupt => interrupt.kind === 'tool-approval'
   )
-  async function send(data) {`,
+  return (`,
   )
   .replace(
     'disabled={isLoading}',
@@ -1566,28 +1629,6 @@ const tanstackApprovalClient = tanstackToolClient
       {error &&`,
   )
 const tanstackApprovalServer = tanstackToolServer
-  .replace(
-    'chat, toolDefinition, toServerSentEventsResponse',
-    'chat, toServerSentEventsResponse',
-  )
-  .replace(
-    "import { z } from 'zod'",
-    "import { browserTimeZone, serverTime } from './tools'",
-  )
-  .replace(
-    tanstackToolServer.slice(
-      tanstackToolServer.indexOf('const browserTimeZone'),
-      tanstackToolServer.indexOf('export async function POST'),
-    ),
-    '',
-  )
-  .replace(
-    'tools: [browserTimeZone, serverTime]',
-    String.raw`tools: [
-      browserTimeZone,
-      serverTime.server(() => ({ utc: new Date().toISOString() })),
-    ]`,
-  )
 
 const mcpServerHelpers = String.raw`function checkRemoteCalls(items, routes) {
   if (!Array.isArray(items)) throw Error('Invalid MCP calls')
@@ -1661,7 +1702,7 @@ function remoteOutputs(calls, history) {
   })
 }`
 
-const diyMcpServer =
+const diyMultipleMcpServer =
   "import { Client } from '@modelcontextprotocol/sdk/client/index.js'\nimport { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'\n\n" +
   diyApprovalServer
     .replace(
@@ -1670,6 +1711,8 @@ const diyMcpServer =
         '\n\n' +
         String.raw`const remotes = [
   { prefix: 'docs', url: 'https://docs.example.com/mcp' },
+  { prefix: 'reference', url: 'https://reference.example.com/mcp' },
+  { prefix: 'catalog', url: 'https://catalog.example.com/mcp' },
 ]
 
 const tools = [{`,
@@ -1773,10 +1816,54 @@ const tools = [{`,
       writer.releaseLock()`,
     )
 
-const diyMultipleMcpServer = diyMcpServer.replace(
-  "  { prefix: 'docs', url: 'https://docs.example.com/mcp' },",
-  "  { prefix: 'docs', url: 'https://docs.example.com/mcp' },\n  { prefix: 'reference', url: 'https://reference.example.com/mcp' },\n  { prefix: 'catalog', url: 'https://catalog.example.com/mcp' },",
-)
+const diyMcpServer = diyMultipleMcpServer
+  .replace(
+    diyMultipleMcpServer.slice(
+      diyMultipleMcpServer.indexOf('const remotes = ['),
+      diyMultipleMcpServer.indexOf('const tools = [{'),
+    ),
+    '',
+  )
+  .replace('    const clients = []', '    let client')
+  .replace(
+    diyMultipleMcpServer.slice(
+      diyMultipleMcpServer.indexOf('      // Trusted read-only servers'),
+      diyMultipleMcpServer.indexOf('      if (resumePause) {'),
+    ),
+    String.raw`      // The trusted read-only server exposes one small page of tools.
+      client = new Client({ name: 'talk-server', version: '1.0.0' })
+      await client.connect(
+        new StreamableHTTPClientTransport(
+          new URL('https://docs.example.com/mcp'),
+        ),
+        { signal: request.signal },
+      )
+      const discovered = await client.listTools(
+        undefined, { signal: request.signal },
+      )
+      if (discovered.nextCursor) throw Error('Expected one tool page')
+      for (const tool of discovered.tools) {
+        const name = 'docs_' + tool.name
+        if (!/^[a-zA-Z0-9_-]{1,64}$/.test(name) ||
+            providerTools.some(item => item.name === name))
+          throw Error('Invalid or duplicate MCP tool name')
+        routes.set(name, tool.name)
+        providerTools.push({
+          type: 'function', name,
+          description: tool.description || name,
+          parameters: tool.inputSchema, strict: false,
+        })
+      }
+`,
+  )
+  .replace(
+    '          const route = routes.get(call.name)\n          const result = await route.client.callTool({\n            name: route.nativeName, arguments: JSON.parse(call.arguments),',
+    '          const result = await client.callTool({\n            name: routes.get(call.name), arguments: JSON.parse(call.arguments),',
+  )
+  .replace(
+    '      await Promise.allSettled(clients.map(client => client.close()))',
+    '      await client?.close().catch(() => {})',
+  )
 
 const tanstackMcpServer = tanstackApprovalServer
   .replace(
@@ -1816,6 +1903,14 @@ const tanstackMultipleMcpServer = tanstackMcpServer
   })`,
   )
   .replace('mcp: { clients: [mcp] }', 'mcp: { clients: [pool] }')
+
+// Leg counts of the boat flows in MapWorld.
+const flowLegs = {
+  'stream-events': 4,
+  'server-tool-flow': 4,
+  'client-tool-flow': 6,
+  'tool-approvals-overview': 6,
+}
 
 export const slides = [
   ...sequence.slice(0, wallIndex),
@@ -1864,13 +1959,14 @@ export const slides = [
           '    connection:',
           "      fetchServerSentEvents('/api/chat'),",
           '  })',
-          '  async function send(data) {',
-          '    await sendMessage(',
-          "      String(data.get('prompt'))",
-          '    )',
-          '  }',
           '  return (',
-          '    <form action={send}>',
+          '    <form onSubmit={event => {',
+          '      event.preventDefault()',
+          '      const data = new FormData(',
+          '        event.currentTarget',
+          '      )',
+          "      sendMessage(String(data.get('prompt')))",
+          '    }}>',
           '      <input name="prompt" required />',
           '      <button type="submit">Send</button>',
           '      {messages.map(message => (',
@@ -1952,13 +2048,14 @@ export const slides = [
                   '    connection:',
                   "      webSocket('/api/chat'),",
                   '  })',
-                  '  async function send(data) {',
-                  '    await sendMessage(',
-                  "      String(data.get('prompt'))",
-                  '    )',
-                  '  }',
                   '  return (',
-                  '    <form action={send}>',
+                  '    <form onSubmit={event => {',
+                  '      event.preventDefault()',
+                  '      const data = new FormData(',
+                  '        event.currentTarget',
+                  '      )',
+                  "      sendMessage(String(data.get('prompt')))",
+                  '    }}>',
                   '      <input name="prompt" required />',
                   '      <button type="submit">Send</button>',
                   '      {messages.map(message => (',
@@ -2126,13 +2223,21 @@ export const slides = [
       'tanstack-anthropic-wall',
       'tanstack-xai-wall',
     ]
-    if (!providerIds.includes(slide.id)) return slide
+    const transportIds = [
+      'tanstack-code-wall',
+      'tanstack-http-wall',
+      'tanstack-websocket-wall',
+    ]
+    const fitIds = transportIds.includes(slide.id)
+      ? [...providerIds, ...transportIds]
+      : providerIds
+    if (!fitIds.includes(slide.id)) return slide
     return {
       ...slide,
       wallColumns: slide.wallColumns.map((column, side) => ({
         ...column,
         fitSources: walls
-          .filter((wall) => providerIds.includes(wall.id))
+          .filter((wall) => fitIds.includes(wall.id))
           .map((wall) => wall.wallColumns[side].lines),
       })),
     }
@@ -2229,13 +2334,27 @@ return toAGUIEvents(
         ],
       },
       {
+        id: 'tanstack-tool-definitions',
+        camera: mapCam.codeWall,
+        form: 'code',
+        halfPanel: true,
+        splitSide: 'center',
+        lang: 'ts',
+        steps: 1,
+        title: 'tools.ts',
+        lines: tanstackApprovalDefinitions
+          .replace('  needsApproval: true,\n', '')
+          .split('\n'),
+        note: 'Shared definitions. Each host adds its handler.',
+      },
+      {
         ...baseline,
         id: 'tanstack-tools-wall',
         title: 'The TanStack way: client and server tools',
         wallColumns: [
           {
             title: 'Client · TanStack tools',
-            lines: tanstackToolClient.split('\n'),
+            lines: tanstackToolLessonClient.split('\n'),
             note: 'TanStack runs client tools and returns results.',
           },
           {
@@ -2261,8 +2380,15 @@ return toAGUIEvents(
             wallColumns: slide.wallColumns.map((column, side) => ({
               ...column,
               decorations: (side === 0
-                ? [[3, 4], [6, 13], 20, [36, 44]]
-                : [2, 5, [7, 11], [13, 17], 27]
+                ? [
+                    [3, 3],
+                    [8, 14],
+                    [19, 27],
+                  ]
+                : [
+                    [5, 5],
+                    [15, 18],
+                  ]
               ).map((lines) => ({
                 lines,
                 className: 'th-line--focused',
@@ -2274,6 +2400,28 @@ return toAGUIEvents(
   )
   .flatMap((slide) => {
     if (slide.id !== 'tanstack-tools-focus') return [slide]
+    const approvalLines = tanstackApprovalClient.split('\n')
+    const messageStart = approvalLines.indexOf(
+      '      {messages.map(message => (',
+    )
+    const approvalStart = approvalLines.indexOf('      {approval && (')
+    const clientLines = [
+      ...approvalLines.slice(0, messageStart),
+      ...approvalLines.slice(approvalStart),
+    ].flatMap((line) =>
+      line.includes('<button type="submit"')
+        ? [
+            '      <button type="submit"',
+            '        disabled={isLoading || resuming ||',
+            '          interrupts.length > 0}>',
+          ]
+        : [
+            line.replace(
+              'messages, sendMessage, isLoading, error,',
+              'sendMessage, isLoading, error,',
+            ),
+          ],
+    )
     const approvalWall = {
       ...slide,
       id: 'tanstack-approvals-wall',
@@ -2281,7 +2429,7 @@ return toAGUIEvents(
       wallColumns: [
         {
           title: 'Client: TanStack approvals',
-          lines: tanstackApprovalClient.split('\n'),
+          lines: clientLines,
           note: 'Your button approves the server tool.',
         },
         {
@@ -2348,15 +2496,14 @@ return toAGUIEvents(
         wallColumns: approvalWall.wallColumns.map((column, side) => {
           const lines = column.lines
           const focused = lines.flatMap((line, index) =>
-            line.includes("from './tools'") ||
-            (side === 0 &&
-              (line.includes('interrupts, resuming,') ||
-                line.includes('disabled={isLoading ||')))
-              ? [index + 1]
-              : [],
+            side !== 0
+              ? []
+              : line.includes('interrupts, resuming,')
+                ? [index + 1]
+                : line.includes('disabled={isLoading ||')
+                  ? [[index + 1, index + 2]]
+                  : [],
           )
-          const toolsStart = lines.indexOf('    tools: [')
-          focused.push([toolsStart + 1, toolsStart + (side === 0 ? 6 : 4)])
           if (side === 0) {
             const selectionStart = lines.indexOf(
               '  const approval = interrupts.find(',
@@ -2372,6 +2519,7 @@ return toAGUIEvents(
           }
           return {
             ...column,
+            lines,
             decorations: focused.map((lines) => ({
               lines,
               className: 'th-line--focused',
@@ -2479,5 +2627,51 @@ return toAGUIEvents(
             ],
           },
         ]
+      : [slide],
+  )
+  .map((slide) => {
+    const ranges = {
+      'tanstack-anthropic-wall': [
+        [],
+        [
+          [4, 4],
+          [12, 12],
+        ],
+      ],
+      'tanstack-xai-wall': [
+        [],
+        [
+          [4, 4],
+          [12, 12],
+        ],
+      ],
+    }[slide.id]
+    if (!ranges) return slide
+
+    return {
+      ...slide,
+      wallColumns: slide.wallColumns.map((column, side) =>
+        ranges[side].length
+          ? {
+              ...column,
+              decorations: ranges[side].map((lines) => ({
+                lines,
+                className: 'th-line--focused',
+              })),
+            }
+          : column,
+      ),
+    }
+  })
+  // Each boat jump is its own slide, so arrow keys step the trip. The first
+  // slide keeps the old ID for deep links.
+  .flatMap((slide) =>
+    flowLegs[slide.id]
+      ? Array.from({ length: flowLegs[slide.id] }, (_, leg) => ({
+          ...slide,
+          id: leg ? `${slide.id}-${leg + 1}` : slide.id,
+          worldId: slide.id,
+          worldStep: leg,
+        }))
       : [slide],
   )

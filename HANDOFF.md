@@ -1,5 +1,83 @@
 # Handoff — WhatTheStack 2026 TanStack AI talk
 
+## Content additions (2026-10-21)
+
+Alem asked for these changes after the visual pass. The deck now has 71 slides (54 before).
+
+- **One slide per boat jump.** The full loop (4 jumps), the server tool flow (4), the client tool flow (6) and the tool approvals flow (6) are now one slide per jump, so the arrow keys step the boat. `flowLegs` in `src/talk.js` makes the extra slides. Its counts must match the legs of the flows in `MapWorld.jsx`. The first slide keeps the old ID for deep links; the next ones add `-2`, `-3` and on. All slides of a flow share `worldId`, and `worldStep` is the jump index. `FerryTrip` takes `legIndex`: it sails only that leg and counts the earlier legs as done. When the camera stays still, the boat leaves at once.
+- On the approval flow, the boat waits at Browser with "WAITING FOR APPROVAL" until the next slide. Then the boat leaves with its APPROVED cargo label. The separate APPROVED label above Browser is gone, because it showed APPROVED twice.
+- **Real middleware hooks.** The harbor master board shows real `ChatMiddleware` hooks in run order: `onConfig`, `onStart`, `onChunk`, `onBeforeToolCall`, `onAfterToolCall`, `onFinish`. The list is not complete. The board is taller, so six rows fit (labels never draw under 24 px). Source: TanStack/ai `main` at `928dfde` (2026-10-21), `packages/ai/src/activities/chat/middleware/types.ts` and `docs/advanced/middleware.md`.
+- **Computer use.** The new slide `computer-use` follows compaction: "What if we want the agent to run our computer?". It shows `createComputerUse` from `@tanstack/ai-computer-use` with `localComputer()` from `@tanstack/ai-computer-local`, and passes `tools`, `middleware` and `interrupts` to `chat()`. Source: `docs/computer-use/computer-use.md` and `drivers.md` on the same commit. `gpt-5.5` lists the `computer` tool in `packages/ai-openai/src/model-meta.ts`. The cloud cut to `close` now starts from `computer-use` (`CameraRig.jsx`).
+- **QR island.** On `thank-you`, a treasure island rises out of the sea after the camera leaves the window. Its notice board shows a QR code for `https://x.com/AlemTuzlak` and the text `x.com/AlemTuzlak`. The island is `TreasureIsland` in `Shack.jsx`. `World.jsx` renders it beside `Shack`, because the cabin timber merge would freeze its moving parts. The QR rows are fixed data (version 2, level M, mask 4), so no QR package was added. If the URL changes, make new rows with any QR encoder. An independent jsQR-based decoder read the code from screenshots at 1600x900 and 1280x720, and also while the island was still rising. Reduced motion shows the island in place.
+- `FoamRing` in `MapWorld.jsx` is exported and takes an optional `color`. The map foam keeps its old color.
+- Checks: screenshots of every new slide and of the transitions, forward and back; flat view; production build into a scratch folder (104 modules, `index-BV0xEcxi.js` 1,380.43 kB, 388.40 kB gzip); frame rate samples with vsync off (thank-you 283 fps, approval jump 141 fps). Not done: a scan with a real phone from a projector, and a stage test.
+- The flat view (`?flat=1`) has no QR code on the thank-you card.
+
+## Visual fidelity pass (2026-10-21)
+
+This pass changes only the look. The slide text, code, slide order, cameras and label positions are unchanged. No dependency was added; the new code uses three.js add-ons and the existing packages.
+
+- `src/scene/PostFX.jsx` renders the world through an `EffectComposer`: light rays (cabin only), bloom, ACES output and a grade pass (vignette, contrast, split tone, dither). Labels, text clouds and the transition cloud are on `OVERLAY_LAYER`. They are drawn after the effects, so their colors stay exact. Put any new text on that layer with `overlay(object)`. Lights call `allLayers` so the overlay clouds stay lit.
+- `src/scene/Ocean.jsx` is the map sea: swells, rotated noise octaves, sky reflection, sun glitter, whitecaps, drifting cloud shadows and haze. Islands register in `seaIslands`; the sea paints turquoise lagoons, caustics, reef patches and a foam line around each visible island.
+- Islands have shaded ground (grass patches, ripples, wet sand, cloud shadows), grass tufts, flowers, chimney smoke, a glowing lighthouse lamp and circling gulls. Map boards use rounded bevels. Ships have wakes, a tarred waterline and sails that move in the wind; the divider ship has rope tubes and deck props; the ferry has a funnel smoke trail and a pennant. The client workshop has a striped awning. The harbor master board is a pinned parchment with brass lamps.
+- `World.jsx` precompiles the shaders of both worlds after load (`compileAsync`, for the composer target and for the screen). Both worlds keep the same light count. Without this the first cabin/map switch froze for about one second under the clouds; now the single frame is 0.1-0.3 s and stays under full cloud cover.
+- The table-to-map transition cloud has puffy shading (lit tops, blue shadows, a soft rim while it moves in).
+- Review round 1 fixes (independent visual review, 2026-10-21):
+  - Headline contrast: the sun disc sits on the horizon, below every headline. Light rays only fill the room (the sky mask's green channel blocks them over open sky). The cabin bloom is tighter. The thank-you view has no rays. Backgrounds behind the white headlines are now darker than in the original, except "Build" on the close slide (within 3%).
+  - Sea: a mid-blue body keeps label contrast at the original level (4.5-6.1 against `#111`). Glints are soft, clamped and fade with distance. Slides with a code or caption cloud calm the sea (`focus` uniform in `Ocean.jsx`). Code clouds cast a soft drop shadow on the world layer (`cloudShadow` in `Surface.jsx`).
+  - The page number corner keeps out of the vignette. Its background is back near the original brightness.
+  - Ship wakes are Kelvin arms with churn and transverse ridges. Ferry smoke is smaller and softer. Dock posts, workshop posts and the approval-gate pontoons have animated foam rings (`FoamRing`).
+  - The harbor master board stands right behind its labels, so RUN END sits on the parchment. The desk moved right, out from under the labels.
+  - Small fixes: the ship's wheel clears the wall post; fewer, softer dust motes; no fixed seam lines on moving sails; a glass highlight on the bottle; the quill leans back to read as a feather.
+- The cabin has a low golden sun with tight shadows, corner darkening, a sunset sky dome with clouds and a sun disc, sunset water with a sun path, dust in the sunbeam, a kilim rug, a ship's wheel, a hanging lamp, a ship in a bottle, an inkwell with a quill, flickering lamp flames and distant birds. The static cabin boards are merged into one mesh after mount (`useMergedTimber`).
+- Performance: every light must be on every layer (`ref={allLayers}`). If a light misses a layer, the light set changes between the passes, and three.js re-checks the shader of about 1,000 lit materials every frame (this halved the frame rate until it was fixed). `PostFX` updates the world matrices once per frame, then the extra passes reuse them.
+- Measured side by side with the original on the RTX 3090 (headless Chrome, 1600x900, vsync off). The machine was shared and busy, so single runs vary up to 2x. Over three alternating runs on the heaviest slide (multiple MCP), the polished deck ran 79-101 fps and the original 78-108 fps. Startup stalls were similar. The first cabin/map switch freezes for 0.25-0.57 s under full cloud cover (original 0.6-0.8 s). One polished test run hung for more than 2 minutes once; it did not happen again in the next 8 runs.
+- New ambient motion respects `prefers-reduced-motion`.
+- Review round 2 fixes:
+  - The two "blank" slides were a capture timing problem: the screenshot came before the first frame on a busy machine. The capture tool now waits for network idle. All 54 slides render.
+  - The wake plane now lies flat on the water in world space (its vertex shader sets the height). Before, it rolled with the ship, dipped under the swells and showed as a dark patch with a hard edge. The transverse ridges are weaker and broken up.
+  - One shared `Smoke` component (instanced, world-space puffs that fade at their outline) serves the ferry funnel and the island chimneys.
+  - The harbor desk is gone, so nothing covers the board corner. The ship's wheel sits on the back wall and stays inside the close view.
+  - The sky and thin cloud streaks behind the headlines are darker: every headline line now has the same or more contrast than the original (measured on the PNGs).
+  - The page number and timer have a soft cream pill (`index.css`), so they read on sky, water and wood.
+  - Far sun sparkles fade out before the horizon. The bottle is green glass with highlights. Dust motes are fewer, larger and softer.
+- Build: `vite build` passes (104 modules, bundle `index-*.js` 1,369 kB, 384 kB gzip). It was built into a scratch folder: `npm run build` empties `dist/`, which still holds the archived bundles from earlier versions.
+
+## Visual polish branch
+
+The current deck has 54 slides and 54 states. Slide 33 shows shared definitions in `tools.ts`. Slides 34 and 35 import those definitions and attach the client and server handlers. The later approval definition adds only `needsApproval: true` to the server clock. Approval and MCP programs keep their exact code. Slides 31 and 32 remain unchanged.
+
+Open the visual preview at `http://127.0.0.1:5176/?slide=three-islands`.
+
+The worktree is `F:/projects/talks/wts-2026-ai-visual-polish`, on branch `visual-polish`. The complete 171-file checkpoint is commit `7e8f97667f8e48940353f1d2fe905ad77b3a064e`. Its main worktree is `F:/projects/talks/wts-2026-ai-finished` and remains clean. The art changes are uncommitted. The earlier preview on port 5174 remains unchanged.
+
+- Islands use one layered land surface with a shared coast for surf. Wet sand meets broken foam without a separate ellipse.
+- Paired palm leaves use instancing. Low plants, varied rocks and small shore props stay inside the existing island layout.
+- Landmarks have masonry, portholes, shutters and roof seams. Ships have fuller sails and more rigging. Ferry wakes follow actual speed.
+- The cabin has a spyglass, coins, a fishing net and frame straps. The existing lighting and cloud layout remain unchanged.
+
+All 53 slides keep their text, code and order. The only content metadata change highlights the HTTP, WebSocket, Anthropic and xAI differences after each section's first example. Independent review passes the coast geometry, closed foam seam, palm bounds and eight wake cases. The wake reads the final boat transform once per clock frame. Reduced motion keeps its opacity at zero.
+
+The second detail pass adds raised tabletop landmarks, palm crowns, piers, a compass dial and real TanStack coin marks. Divider ships have static cannons. Their sail assemblies and offshore sails face their bows; the real marks follow the cloth. A beach supports the exterior palms. Camera paths stay exact, while camera, cloud and story durations are halved. Ocean waves and ambient motion keep their original clock rates.
+
+Tall caption clouds now use a viewport-height cap and camera-relative depth 16. Their screen layout stays unchanged where it already fits. This fixes the wide-window footer issue without changing text: the old cloud body crossed the ocean while its text plane stayed above it. Review covers 444 settled placements and 2,516 transition samples, plus 30 camera, 14 ferry-phase and six highlight checks. Final views include 1600x900, 1600x720 and 1280x720. The main checkpoint remains unchanged.
+
+Browser checks cover the overview, six islands, half-layout code, cabin and final sunset at 1600x900 and 1280x720. The window exit stays clear. The browser reports no errors. Review images stay in `F:/projects/talks/wts-2026-ai-polished-review`.
+
+The final performance sample used HeadlessChrome 149 with an RTX 3090 at 1600x900 and DPR 1. Each scene ran for eight seconds.
+
+| Scene         | Checkpoint FPS | Polish FPS | Polish draw calls |
+| ------------- | -------------: | ---------: | ----------------: |
+| Three islands |          164.8 |      164.8 |           421-425 |
+| Six islands   |           90.4 |      124.5 |              1037 |
+| Cabin         |          164.8 |      164.8 |               381 |
+
+Map resources return to the same counts after navigation. The cabin adds one geometry on its first return, then stays stable. These measurements are not a stage-machine test.
+
+The final native build passed on 2026-09-15: 91 modules in 2.47 seconds. Bundle: `index-Cwqtr_i9.js` (1,282.07 kB, 360.68 kB gzip). All 28 archived JavaScript bundles remain intact. The existing npm configuration and chunk-size warnings remain. The installed Vite 7.1.7 also has an existing high audit finding. Dependencies and the lockfile remain unchanged.
+
+## Preserved presentation records
+
 The current deck has 53 slides and 53 states. Slide 53 says "Thank you" and "Alem Tuzlak" over the sunset. From slide 52, the camera travels through the open cabin window in 4.8 seconds. It stops outside at `[0, 1.8, -10]`. The text appears after the camera clears the window. Reduced motion uses a stationary 0.4-second fade. The 52 earlier slide objects remain unchanged.
 
 The final slide passes 24 focused source checks. All 348 sampled camera and near-plane points clear the window. Eight comparisons confirm that the 51-52 cloud transition remains exact. Browser checks cover the window and final view at 1600x900 and 1280x720, reverse navigation, rapid reversal and reduced motion. The title and name stay inside the viewport. The live final slide is `http://127.0.0.1:5174/?slide=thank-you`.

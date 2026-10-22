@@ -4,6 +4,7 @@ import { useTalk } from './store.js'
 import { bindNav } from './nav.js'
 import { World } from './scene/World.jsx'
 import { CameraRig } from './scene/CameraRig.jsx'
+import { PostFX } from './scene/PostFX.jsx'
 import { Hud } from './hud/Hud.jsx'
 import { FlatView } from './flat/FlatView.jsx'
 import { colors, shackSlides } from './scene/layout.js'
@@ -45,6 +46,7 @@ export function App() {
         <Suspense fallback={null}>
           <World />
         </Suspense>
+        <PostFX />
       </Canvas>
       <Hud />
     </>

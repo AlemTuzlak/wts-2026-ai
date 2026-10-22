@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { useFrame } from '@react-three/fiber'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useFrame, useLoader } from '@react-three/fiber'
 import * as THREE from 'three'
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { colors, islands, MAP_Y } from './layout.js'
 import { Surface } from './Surface.jsx'
 import { Label } from './Label.jsx'
+import { allLayers, overlay } from './PostFX.jsx'
+import { Ocean, seaIslands, oceanNoise } from './Ocean.jsx'
 import { useTalk } from '../store.js'
 
 const wood = new THREE.TextureLoader().load(
@@ -16,6 +20,10 @@ const woodNormal = new THREE.TextureLoader().load(
   './textures/wood/Wood066_1K-JPG_NormalGL.jpg',
 )
 woodNormal.wrapS = woodNormal.wrapT = THREE.RepeatWrapping
+const woodRoughness = new THREE.TextureLoader().load(
+  './textures/wood/Wood066_1K-JPG_Roughness.jpg',
+)
+woodRoughness.wrapS = woodRoughness.wrapT = THREE.RepeatWrapping
 
 const grain = (() => {
   const canvas = document.createElement('canvas')
@@ -34,88 +42,427 @@ const grain = (() => {
   return texture
 })()
 
+// Canvas stripes for the client workshop awning, in the brand palette.
+const awning = (() => {
+  const canvas = document.createElement('canvas')
+  canvas.width = canvas.height = 256
+  const ctx = canvas.getContext('2d')
+  for (let stripe = 0; stripe < 8; stripe++) {
+    ctx.fillStyle = stripe % 2 ? '#c8553a' : '#f1e6cc'
+    ctx.fillRect(0, stripe * 32, 256, 32)
+  }
+  for (let i = 0; i < 1600; i++) {
+    const n = Math.sin(i * 12.9898) * 43758.5453
+    ctx.fillStyle = `rgba(70,40,20,${0.03 + (i % 5) * 0.012})`
+    ctx.fillRect((n - Math.floor(n)) * 256, (i * 17.31) % 256, 1, 3 + (i % 9))
+  }
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.anisotropy = 8
+  return texture
+})()
+
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     wood.dispose()
     woodNormal.dispose()
+    woodRoughness.dispose()
     grain.dispose()
+    awning.dispose()
   })
 }
 
+// Boards and blocks get small rounded edges that catch the light. One shared
+// geometry per size keeps the bevel the same width on every board.
+const timberShapes = new Map()
+function timberShape([width, height, depth] = [1, 1, 1]) {
+  const key = `${width}|${height}|${depth}`
+  if (!timberShapes.has(key))
+    timberShapes.set(
+      key,
+      new RoundedBoxGeometry(
+        width,
+        height,
+        depth,
+        2,
+        Math.min(0.03, Math.min(width, height, depth) * 0.22),
+      ),
+    )
+  return timberShapes.get(key)
+}
+
+if (import.meta.hot)
+  import.meta.hot.dispose(() => {
+    timberShapes.forEach((shape) => shape.dispose())
+    timberShapes.clear()
+  })
+
 function Timber({ position, scale, rotation, color = '#92704b' }) {
+  const tint = useMemo(
+    () => new THREE.Color(color).lerp(new THREE.Color('#fff3d8'), 0.38),
+    [color],
+  )
   return (
     <mesh
       position={position}
-      scale={scale}
       rotation={rotation}
+      geometry={timberShape(scale)}
       castShadow
       receiveShadow
     >
-      <boxGeometry />
       <meshStandardMaterial
-        color={color}
+        color={tint}
         map={wood}
         normalMap={woodNormal}
-        normalScale={[0.3, 0.3]}
-        roughness={0.88}
+        normalScale={[0.22, 0.22]}
+        roughnessMap={woodRoughness}
+        roughness={0.96}
+        onBeforeCompile={(shader) => {
+          shader.fragmentShader = shader.fragmentShader.replace(
+            '#include <roughnessmap_fragment>',
+            '#include <roughnessmap_fragment>\nroughnessFactor=max(roughnessFactor,0.84);',
+          )
+        }}
       />
     </mesh>
   )
 }
 
-function Shore({ radius, height, seed, color }) {
+// Seeded random numbers keep every island's details stable between loads.
+function seeded(seed) {
+  let state = Math.floor(seed * 2654435761) >>> 0
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0
+    let t = state
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+const coastEdge = (a, seed) =>
+  1 +
+  0.095 * Math.sin(a * 3 + seed) +
+  0.07 * Math.cos(a * 7 - seed) +
+  0.035 * Math.sin(a * 13)
+
+// Ground height of the island rings (inner grass plateau to the beach).
+const groundHeight = (r) => {
+  const rings = [
+    [0, 0.89],
+    [0.32, 0.88],
+    [0.62, 0.78],
+    [0.76, 0.58],
+    [0.85, 0.3],
+  ]
+  for (let i = 1; i < rings.length; i++)
+    if (r <= rings[i][0]) {
+      const [r0, y0] = rings[i - 1],
+        [r1, y1] = rings[i]
+      return THREE.MathUtils.lerp(y0, y1, (r - r0) / (r1 - r0))
+    }
+  return 0.3
+}
+
+// Grass patches, dunes, ripples, wet sand and passing cloud shadows.
+function shadeLand(uniforms) {
+  return (shader) => {
+    shader.uniforms.time = uniforms.time
+    shader.uniforms.landSeed = uniforms.seed
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        '#include <common>\nvarying vec3 vLandPos;\nvarying vec3 vLandWorld;',
+      )
+      .replace(
+        '#include <begin_vertex>',
+        '#include <begin_vertex>\nvLandPos = position;\nvLandWorld = (modelMatrix * vec4(position, 1.0)).xyz;',
+      )
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        uniform float time;
+        uniform float landSeed;
+        varying vec3 vLandPos;
+        varying vec3 vLandWorld;
+        ${oceanNoise}`,
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+        vec2 q = vLandPos.xz + landSeed * 7.0;
+        float grass = smoothstep(0.52, 0.74, vLandPos.y);
+        float wet = 1.0 - smoothstep(0.02, 0.17, vLandPos.y);
+        float patches = fbm2(q * 1.25);
+        float fine = gnoised(q * 7.5).x;
+        vec3 lush = mix(vec3(0.76, 0.9, 0.7), vec3(1.14, 1.07, 0.78), smoothstep(-0.25, 0.3, patches));
+        diffuseColor.rgb *= mix(vec3(1.0), lush, grass);
+        diffuseColor.rgb *= 1.0 + fine * 0.09 * grass;
+        float ripple = sin(dot(q, vec2(8.5, 3.1)) + fine * 2.4) * (1.0 - grass) * (1.0 - wet);
+        diffuseColor.rgb *= 1.0 + ripple * 0.035 + patches * 0.07 * (1.0 - grass);
+        diffuseColor.rgb *= mix(1.0, 0.68, wet);
+        diffuseColor.rgb *= 1.0 - cloudShadow(vLandWorld.xz, time) * 0.42;`,
+      )
+      .replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+        roughnessFactor = mix(roughnessFactor, 0.3, wet);`,
+      )
+      .replace(
+        '#include <normal_fragment_maps>',
+        `#include <normal_fragment_maps>
+        {
+          float bump = fbm2(q * 2.1) * 0.05 + fine * 0.012;
+          vec3 dpx = dFdx(-vViewPosition), dpy = dFdy(-vViewPosition);
+          float dbx = dFdx(bump), dby = dFdy(bump);
+          vec3 r1 = cross(dpy, normal), r2 = cross(normal, dpx);
+          float det = dot(dpx, r1);
+          normal = normalize(abs(det) * normal - sign(det) * (dbx * r1 + dby * r2));
+        }`,
+      )
+  }
+}
+
+const tuft = (() => {
+  const vertices = [],
+    tints = []
+  for (let blade = 0; blade < 6; blade++) {
+    const a = (blade / 6) * Math.PI * 2 + blade * 0.4
+    const lean = 0.05 + (blade % 3) * 0.025
+    const height = 0.15 + (blade % 2) * 0.07
+    const side = [Math.cos(a + Math.PI / 2) * 0.016, Math.sin(a + Math.PI / 2) * 0.016]
+    vertices.push(
+      -side[0], 0, -side[1],
+      side[0], 0, side[1],
+      Math.cos(a) * lean, height, Math.sin(a) * lean,
+    )
+    tints.push(0.16, 0.3, 0.1, 0.16, 0.3, 0.1, 0.62, 0.74, 0.32)
+  }
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3))
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(tints, 3))
+  geometry.computeVertexNormals()
+  return geometry
+})()
+const blossom = new THREE.IcosahedronGeometry(0.034, 0)
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    tuft.dispose()
+    blossom.dispose()
+  })
+}
+
+// Grass tufts and small flowers on the grass plateau, kept off the landmark.
+function Meadow({ seed }) {
+  const grass = useRef(),
+    flowers = useRef()
+  useLayoutEffect(() => {
+    const random = seeded(seed + 0.37)
+    const object = new THREE.Object3D(),
+      color = new THREE.Color()
+    const spot = () => {
+      for (;;) {
+        const a = random() * Math.PI * 2
+        const r = 0.22 + Math.sqrt(random()) * 0.52
+        const edge = 3.3 * coastEdge(a, seed) * r
+        const x = Math.cos(a) * edge,
+          z = Math.sin(a) * edge * 0.82
+        if (Math.hypot(x, (z + 0.2) * 1.3) < 1.35) continue
+        return [x, groundHeight(r) + Math.sin(a * 8 + seed) * 0.035 * r, z]
+      }
+    }
+    for (let i = 0; i < 90; i++) {
+      object.position.set(...spot())
+      object.rotation.set(0, random() * Math.PI * 2, 0)
+      object.scale.setScalar(0.7 + random() * 0.8)
+      object.updateMatrix()
+      grass.current.setMatrixAt(i, object.matrix)
+      color.setHSL(0.24 + random() * 0.06, 0.45, 0.42 + random() * 0.18)
+      grass.current.setColorAt(i, color)
+    }
+    const palette = ['#d3481b', '#f2e8c9', '#e8b84a', '#e06e49']
+    for (let i = 0; i < 36; i++) {
+      object.position.set(...spot())
+      object.position.y += 0.06
+      object.rotation.set(random(), random(), random())
+      object.scale.setScalar(0.6 + random() * 0.7)
+      object.updateMatrix()
+      flowers.current.setMatrixAt(i, object.matrix)
+      flowers.current.setColorAt(i, color.set(palette[i % palette.length]))
+    }
+    for (const mesh of [grass.current, flowers.current]) {
+      mesh.instanceMatrix.needsUpdate = true
+      mesh.instanceColor.needsUpdate = true
+      mesh.computeBoundingSphere()
+    }
+  }, [seed])
+  return (
+    <>
+      <instancedMesh ref={grass} args={[tuft, undefined, 90]} castShadow>
+        <meshStandardMaterial
+          vertexColors
+          roughness={0.85}
+          side={THREE.DoubleSide}
+        />
+      </instancedMesh>
+      <instancedMesh ref={flowers} args={[blossom, undefined, 36]}>
+        <meshStandardMaterial roughness={0.6} />
+      </instancedMesh>
+    </>
+  )
+}
+
+function Shore({ seed }) {
+  const surf = useRef()
+  const uniforms = useMemo(
+    () => ({ time: { value: 0 }, seed: { value: seed } }),
+    [seed],
+  )
+  const landShader = useMemo(() => shadeLand(uniforms), [uniforms])
+  const reduced = useMemo(
+    () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+    [],
+  )
   const geometry = useMemo(() => {
+    const segments = 72
+    const coast = Array.from({ length: segments + 1 }, (_, i) => {
+      const a = (i / segments) * Math.PI * 2
+      const edge = coastEdge(a, seed)
+      return new THREE.Vector2(
+        Math.cos(a) * 3.3 * edge,
+        Math.sin(a) * 3.3 * edge * 0.82,
+      )
+    })
     const vertices = [],
       indices = [],
       uv = [],
-      segments = 72
+      tint = []
     const rings = [
-      [0.02, height],
-      [0.52, height * 0.94],
-      [0.83, height * 0.65],
-      [1, -0.08],
+      [0, 0.89, '#6c9e71'],
+      [0.32, 0.88, '#8caf79'],
+      [0.62, 0.78, '#9db480'],
+      [0.76, 0.58, '#c4ba85'],
+      [0.85, 0.3, '#ffe6b6'],
+      [0.92, 0.13, '#f4ddb0'],
+      [0.97, 0.01, '#899980'],
+      [1, -0.08, '#748879'],
     ]
-    rings.forEach(([r, y]) => {
+    rings.forEach(([r, y, color]) => {
       for (let i = 0; i <= segments; i++) {
         const a = (i / segments) * Math.PI * 2
-        const edge =
-          1 +
-          0.095 * Math.sin(a * 3 + seed) +
-          0.07 * Math.cos(a * 7 - seed) +
-          0.035 * Math.sin(a * 13)
-        const x = Math.cos(a) * radius * r * edge,
-          z = Math.sin(a) * radius * r * edge * 0.82
-        vertices.push(x, y + Math.sin(a * 8 + seed) * 0.055 * r, z)
-        uv.push(x / 4, z / 4)
+        const x = coast[i].x * r,
+          z = coast[i].y * r
+        vertices.push(x, y + Math.sin(a * 8 + seed) * 0.035 * r, z)
+        uv.push(x / 2, z / 2)
+        const c = new THREE.Color(color).multiplyScalar(
+          0.94 + 0.06 * Math.sin(a * 5 + seed),
+        )
+        tint.push(c.r, c.g, c.b)
       }
     })
-    for (let r = 0; r < 3; r++)
+    for (let r = 0; r < rings.length - 1; r++)
       for (let i = 0; i < segments; i++) {
         const a = r * (segments + 1) + i,
           b = a + segments + 1
         indices.push(a, a + 1, b, a + 1, b + 1, b)
       }
-    const g = new THREE.BufferGeometry()
-    g.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3))
-    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2))
-    g.setIndex(indices)
-    g.computeVertexNormals()
-    return g
-  }, [radius, height, seed])
-  useEffect(() => () => geometry.dispose(), [geometry])
+    const land = new THREE.BufferGeometry()
+    land.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3))
+    land.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2))
+    land.setAttribute('color', new THREE.Float32BufferAttribute(tint, 3))
+    land.setIndex(indices)
+    land.computeVertexNormals()
+    const waterVertices = [],
+      waterUv = [],
+      waterIndices = []
+    for (let ring = 0; ring <= 12; ring++)
+      for (let i = 0; i <= segments; i++) {
+        const p = coast[i],
+          distance = ring / 12
+        const outward = p.clone().normalize()
+        waterVertices.push(
+          p.x + outward.x * (distance * 0.7 - 0.1),
+          0.025,
+          p.y + outward.y * (distance * 0.7 - 0.1),
+        )
+        waterUv.push(i / segments, distance)
+        if (ring < 12 && i < segments) {
+          const a = ring * (segments + 1) + i,
+            b = a + segments + 1
+          waterIndices.push(a, a + 1, b, a + 1, b + 1, b)
+        }
+      }
+    const water = new THREE.BufferGeometry()
+    water.setAttribute(
+      'position',
+      new THREE.Float32BufferAttribute(waterVertices, 3),
+    )
+    water.setAttribute('uv', new THREE.Float32BufferAttribute(waterUv, 2))
+    water.setIndex(waterIndices)
+    water.computeVertexNormals()
+    return { land, water }
+  }, [seed])
+  useEffect(
+    () => () => {
+      geometry.land.dispose()
+      geometry.water.dispose()
+    },
+    [geometry],
+  )
+  useFrame(({ clock }) => {
+    if (surf.current) uniforms.time.value = reduced ? 0 : clock.elapsedTime
+  })
   return (
-    <mesh geometry={geometry} receiveShadow castShadow>
-      <meshStandardMaterial
-        color={color}
-        map={grain}
-        roughness={0.94}
-        side={THREE.DoubleSide}
-      />
-    </mesh>
+    <>
+      <mesh geometry={geometry.land} receiveShadow castShadow>
+        <meshStandardMaterial
+          vertexColors
+          map={grain}
+          roughness={0.94}
+          onBeforeCompile={landShader}
+        />
+      </mesh>
+      <mesh ref={surf} geometry={geometry.water}>
+        <shaderMaterial
+          uniforms={uniforms}
+          transparent
+          depthWrite={false}
+          side={THREE.DoubleSide}
+          vertexShader={`
+        uniform float time; uniform float seed; varying vec2 shore;
+        void main(){shore=uv;vec3 p=position;
+          float crest=pow(max(0.,sin(uv.y*11.+time*1.2+sin(uv.x*31.4159265+seed)*.45)),6.);
+          p.y+=crest*.035*sin(uv.y*3.14159);
+          gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.);
+        }
+      `}
+          fragmentShader={`
+        uniform float time;uniform float seed;varying vec2 shore;
+        void main(){
+          float phase=shore.y*11.+time*1.2+sin(shore.x*31.4159265+seed)*.45;
+          float swell=max(0.,sin(phase));
+          float crest=pow(swell,5.);
+          float breaks=smoothstep(-.35,.7,sin(shore.x*119.380521+sin(shore.x*50.2654825)*2.+seed));
+          float edge=smoothstep(0.,.10,shore.y)*(1.-smoothstep(.62,1.,shore.y));
+          float grain=.68+.32*sin(shore.x*458.672527+sin(shore.y*81.)*2.+time*.6);
+          float foam=crest*breaks*edge*grain;
+          float wash=pow(swell,2.)*breaks*edge;
+          vec3 color=mix(vec3(.28,.64,.61),vec3(.89,.94,.85),smoothstep(.02,.3,foam));
+          gl_FragColor=vec4(color,wash*.16+foam*.64);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }
+      `}
+        />
+      </mesh>
+    </>
   )
 }
 
 function Palm({ position, rotation = 0, scale = 1 }) {
+  const foliage = useRef()
   const leaves = useMemo(
     () =>
       Array.from({ length: 8 }, (_, i) => {
@@ -128,6 +475,48 @@ function Palm({ position, rotation = 0, scale = 1 }) {
       }),
     [],
   )
+  const leaf = useMemo(() => {
+    const g = new THREE.PlaneGeometry(0.26, 0.78, 2, 8),
+      p = g.attributes.position
+    for (let i = 0; i < p.count; i++) {
+      const t = p.getY(i) / 0.78 + 0.5
+      p.setXYZ(
+        i,
+        p.getX(i) * Math.sin(t * Math.PI),
+        Math.sin(t * Math.PI) * 0.07 - t * t * 0.16,
+        t * 0.78,
+      )
+    }
+    g.computeVertexNormals()
+    return g
+  }, [])
+  useEffect(() => () => leaf.dispose(), [leaf])
+  useLayoutEffect(() => {
+    const object = new THREE.Object3D(),
+      color = new THREE.Color()
+    leaves.forEach((curve, i) => {
+      for (let j = 0; j < 7; j++)
+        for (let side = 0; side < 2; side++) {
+          object.position.copy(curve.getPoint((j + 1) / 8))
+          object.rotation.set(
+            0.12,
+            (side ? Math.PI : 0) - (i * Math.PI) / 4 + (side ? -0.25 : 0.25),
+            0,
+          )
+          object.scale.setScalar(0.95 - j * 0.055)
+          object.updateMatrix()
+          const index = (i * 7 + j) * 2 + side
+          foliage.current.setMatrixAt(index, object.matrix)
+          color
+            .set(['#37653c', '#527c3e', '#709749'][i % 3])
+            .multiplyScalar(0.9 + j * 0.02)
+          foliage.current.setColorAt(index, color)
+        }
+    })
+    foliage.current.instanceMatrix.needsUpdate = true
+    foliage.current.instanceColor.needsUpdate = true
+    foliage.current.computeBoundingSphere()
+  }, [leaves])
   return (
     <group position={position} rotation={[0, rotation, 0.13]} scale={scale}>
       <mesh position={[0, 1, 0]} castShadow>
@@ -140,25 +529,94 @@ function Palm({ position, rotation = 0, scale = 1 }) {
             <tubeGeometry args={[curve, 10, 0.035, 4, false]} />
             <meshStandardMaterial color="#626348" />
           </mesh>
-          {Array.from({ length: 7 }, (_, j) => (
-            <mesh
-              key={j}
-              position={curve.getPoint((j + 1) / 8)}
-              rotation={[0.7, (i * Math.PI) / 4, 0.35]}
-              scale={[0.13, 0.045, 0.38 - j * 0.029]}
-              castShadow
-            >
-              <sphereGeometry args={[1, 6, 4]} />
-              <meshStandardMaterial color={i % 2 ? '#777653' : '#5c6042'} />
-            </mesh>
-          ))}
         </group>
+      ))}
+      <instancedMesh ref={foliage} args={[leaf, undefined, 112]} castShadow>
+        <meshStandardMaterial roughness={0.9} side={THREE.DoubleSide} />
+      </instancedMesh>
+      {[-1, 0, 1].map((i) => (
+        <mesh
+          key={i}
+          position={[i * 0.12, 2.05, Math.abs(i) * 0.08]}
+          castShadow
+        >
+          <sphereGeometry args={[0.1, 8, 6]} />
+          <meshStandardMaterial color="#826043" roughness={1} />
+        </mesh>
       ))}
     </group>
   )
 }
 
-function Dock({ position }) {
+// A broken ring of foam where a post or pontoon meets the water. Its shader
+// uses the ring's local position, so there is no seam around the circle.
+export function FoamRing({
+  position,
+  radius,
+  width = 0.22,
+  seed = 0,
+  color,
+}) {
+  const uniforms = useMemo(
+    () => ({
+      time: { value: 0 },
+      radius: { value: radius },
+      width: { value: width },
+      seed: { value: seed },
+      color: {
+        value: color
+          ? new THREE.Color(color)
+          : new THREE.Color().setRGB(0.93, 0.97, 0.96),
+      },
+    }),
+    [radius, width, seed, color],
+  )
+  const reduced = useMemo(
+    () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+    [],
+  )
+  useFrame(({ clock }) => {
+    uniforms.time.value = reduced ? 0 : clock.elapsedTime
+  })
+  return (
+    <mesh position={position} rotation={[-Math.PI / 2, 0, 0]}>
+      <ringGeometry args={[radius * 0.85, radius + width, 40, 1]} />
+      <shaderMaterial
+        uniforms={uniforms}
+        transparent
+        depthWrite={false}
+        polygonOffset
+        polygonOffsetFactor={-2}
+        vertexShader={`
+          varying vec2 vRing;
+          void main() {
+            vRing = position.xy;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `}
+        fragmentShader={`
+          uniform float time, radius, width, seed;
+          uniform vec3 color;
+          varying vec2 vRing;
+          ${oceanNoise}
+          void main() {
+            float r = length(vRing);
+            float t = (r - radius) / width;
+            float band = smoothstep(-0.15, 0.08, t) * (1.0 - smoothstep(0.15, 1.0, t));
+            vec2 q = vRing / (radius + width) * 3.0 + seed;
+            float broken = smoothstep(-0.25, 0.45,
+              gnoised(q + vec2(time * 0.35, -time * 0.2)).x * 0.7
+              + gnoised(q * 2.6 - time * 0.5).x * 0.3);
+            float lap = 0.75 + 0.25 * sin(time * 1.9 + seed * 3.0 - t * 4.0);
+            gl_FragColor = vec4(color, band * broken * lap * 0.8);
+          }
+        `}
+      />
+    </mesh>
+  )
+}
+
+function Dock({ position, foam = true }) {
   return (
     <group position={position}>
       {Array.from({ length: 13 }, (_, i) => (
@@ -180,6 +638,15 @@ function Dock({ position }) {
               <torusGeometry args={[0.085, 0.027, 5, 12]} />
               <meshStandardMaterial color="#bba77b" />
             </mesh>
+            {/* The dock sits 0.35 above the water line. */}
+            {foam && (
+              <FoamRing
+                position={[0, -0.135, 0]}
+                radius={0.095}
+                width={0.2}
+                seed={x * 3 + z}
+              />
+            )}
           </group>
         )),
       )}
@@ -211,8 +678,8 @@ function ToolWorkshops({ focus, work }) {
         ? 1
         : THREE.MathUtils.smoothstep(
             elapsed.current,
-            0.55 + i * 0.55,
-            1.65 + i * 0.55,
+            0.275 + i * 0.275,
+            0.825 + i * 0.275,
           )
       ref.current.visible =
         t > 0 &&
@@ -269,6 +736,12 @@ function ToolWorkshops({ focus, work }) {
                   <torusGeometry args={[0.16, 0.045, 6, 16]} />
                   <meshStandardMaterial color="#bfa57a" />
                 </mesh>
+                <FoamRing
+                  position={[0, 0.035, 0]}
+                  radius={0.16}
+                  width={0.24}
+                  seed={x + z * 2}
+                />
               </group>
             )),
           )}
@@ -400,10 +873,12 @@ function ToolWorkshops({ focus, work }) {
                   key={s}
                   position={[s * 0.85, 2.45, -0.25]}
                   rotation={[0, 0, -s * 0.24]}
+                  castShadow
                 >
                   <boxGeometry args={[1.85, 0.065, 2.6]} />
                   <meshStandardMaterial
-                    color={s < 0 ? '#d8c796' : '#bba875'}
+                    map={awning}
+                    color={s < 0 ? '#ffffff' : '#ece4d4'}
                     roughness={1}
                   />
                 </mesh>
@@ -548,13 +1023,186 @@ function ToolWorkshops({ focus, work }) {
   )
 }
 
+const puff = new THREE.SphereGeometry(1, 12, 9)
+
+if (import.meta.hot) import.meta.hot.dispose(() => puff.dispose())
+
+const chimneyTop = [0, 0.38, 0]
+const chimneyPuff = [0.06, 0.34]
+
+function Chimney({ position }) {
+  const stack = useRef()
+  return (
+    <group ref={stack} position={position}>
+      <mesh castShadow>
+        <boxGeometry args={[0.24, 0.62, 0.24]} />
+        <meshStandardMaterial color="#8b7f6c" map={grain} roughness={0.95} />
+      </mesh>
+      <mesh position={[0, 0.32, 0]}>
+        <boxGeometry args={[0.31, 0.06, 0.31]} />
+        <meshStandardMaterial color="#5e5446" roughness={0.9} />
+      </mesh>
+      <Smoke
+        source={stack}
+        offset={chimneyTop}
+        every={0.1}
+        life={2.8}
+        rise={0.55}
+        size={chimneyPuff}
+        opacity={0.36}
+      />
+    </group>
+  )
+}
+
+const gullWing = (() => {
+  // An M-shaped gull wing: raised inner half, drooping dark tip.
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute(
+      [
+        0, 0, -0.06, 0, 0, 0.08, 0.22, 0.05, -0.05,
+        0, 0, 0.08, 0.22, 0.05, 0.05, 0.22, 0.05, -0.05,
+        0.22, 0.05, -0.05, 0.22, 0.05, 0.05, 0.44, -0.02, -0.07,
+      ],
+      3,
+    ),
+  )
+  const light = [0.96, 0.96, 0.94],
+    dark = [0.3, 0.31, 0.33]
+  geometry.setAttribute(
+    'color',
+    new THREE.Float32BufferAttribute(
+      [...light, ...light, ...light, ...light, ...light, ...light, ...light, ...light, ...dark],
+      3,
+    ),
+  )
+  geometry.computeVertexNormals()
+  return geometry
+})()
+const gullBody = new THREE.SphereGeometry(1, 8, 6)
+
+if (import.meta.hot)
+  import.meta.hot.dispose(() => {
+    gullWing.dispose()
+    gullBody.dispose()
+  })
+
+// A few gulls circle the islands. Three instanced meshes draw all of them.
+function Gulls() {
+  const bodies = useRef(),
+    left = useRef(),
+    right = useRef()
+  const flock = useMemo(() => {
+    const random = seeded(4.2)
+    return [
+      [-10, 7, 3],
+      [0, -7, 3],
+      [10, 7, 2],
+    ].flatMap(([x, z, count]) =>
+      Array.from({ length: count }, () => ({
+        x: x + (random() - 0.5) * 2,
+        z: z + (random() - 0.5) * 2,
+        radius: 2.6 + random() * 2.2,
+        height: 4.4 + random() * 2.4,
+        speed: (random() > 0.5 ? 1 : -1) * (0.28 + random() * 0.14),
+        phase: random() * Math.PI * 2,
+      })),
+    )
+  }, [])
+  const rig = useMemo(() => {
+    const gull = new THREE.Object3D(),
+      body = new THREE.Object3D(),
+      wingL = new THREE.Object3D(),
+      wingR = new THREE.Object3D()
+    body.scale.set(0.045, 0.04, 0.15)
+    wingL.position.set(0.03, 0.01, 0.01)
+    wingR.position.set(-0.03, 0.01, 0.01)
+    gull.add(body, wingL, wingR)
+    return { gull, body, wingL, wingR }
+  }, [])
+  const reduced = useMemo(
+    () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+    [],
+  )
+  useFrame(({ clock }) => {
+    if (!bodies.current) return
+    const time = reduced ? 0 : clock.elapsedTime
+    const { gull, body, wingL, wingR } = rig
+    flock.forEach((bird, i) => {
+      const angle = bird.phase + time * bird.speed
+      gull.position.set(
+        bird.x + Math.cos(angle) * bird.radius,
+        MAP_Y + bird.height + Math.sin(time * 0.8 + bird.phase) * 0.25,
+        bird.z + Math.sin(angle) * bird.radius,
+      )
+      gull.rotation.set(
+        0,
+        bird.speed > 0 ? -angle : Math.PI - angle,
+        Math.sign(bird.speed) * 0.32,
+        'YXZ',
+      )
+      gull.scale.setScalar(0.75)
+      const glide = Math.sin(time * 0.55 + bird.phase * 3)
+      const flap =
+        (glide > 0.2 ? Math.sin(time * 9 + bird.phase) * 0.55 : 0.12) + 0.08
+      wingL.rotation.set(0, 0, flap)
+      wingR.rotation.set(0, Math.PI, flap)
+      gull.updateMatrixWorld(true)
+      bodies.current.setMatrixAt(i, body.matrixWorld)
+      left.current.setMatrixAt(i, wingL.matrixWorld)
+      right.current.setMatrixAt(i, wingR.matrixWorld)
+    })
+    for (const mesh of [bodies.current, left.current, right.current]) {
+      mesh.instanceMatrix.needsUpdate = true
+      mesh.computeBoundingSphere()
+    }
+  })
+  return (
+    <>
+      <instancedMesh ref={bodies} args={[gullBody, undefined, flock.length]}>
+        <meshStandardMaterial color="#f4f3ee" roughness={0.8} />
+      </instancedMesh>
+      {[left, right].map((ref, i) => (
+        <instancedMesh
+          key={i}
+          ref={ref}
+          args={[gullWing, undefined, flock.length]}
+        >
+          <meshStandardMaterial
+            vertexColors
+            roughness={0.85}
+            side={THREE.DoubleSide}
+          />
+        </instancedMesh>
+      ))}
+    </>
+  )
+}
+
 function Landmark({ kind }) {
   if (kind === 'server')
     return (
       <group position={[0.1, 0.8, -0.25]}>
         <mesh position={[0, 1.6, 0]} castShadow>
           <cylinderGeometry args={[0.48, 0.75, 3.2, 24]} />
-          <meshStandardMaterial color="#e7ddbc" map={grain} />
+          <meshStandardMaterial
+            color="#f0e7c9"
+            map={grain}
+            roughness={0.95}
+            onBeforeCompile={(shader) => {
+              shader.fragmentShader = shader.fragmentShader.replace(
+                '#include <color_fragment>',
+                `#include <color_fragment>
+        vec2 course=vec2(vMapUv.x*12.0+mod(floor(vMapUv.y*10.0),2.0)*0.5,vMapUv.y*10.0);
+        vec2 edge=min(fract(course),1.0-fract(course));
+        float mortar=1.0-smoothstep(0.02,0.055,min(edge.x,edge.y));
+        float stone=0.92+0.08*sin(floor(course.x)*7.0+floor(course.y)*13.0);
+        diffuseColor.rgb=mix(diffuseColor.rgb*stone,vec3(0.31,0.29,0.23),mortar*0.52);`,
+              )
+            }}
+          />
         </mesh>
         {[0.3, 1.8, 2.9].map((y) => (
           <mesh key={y} position={[0, y, 0]}>
@@ -567,14 +1215,28 @@ function Landmark({ kind }) {
         <mesh position={[0, 3.3, 0]}>
           <cylinderGeometry args={[0.5, 0.5, 0.65, 12]} />
           <meshStandardMaterial
-            color="#e9cd92"
-            metalness={0.4}
-            roughness={0.25}
+            color="#fff1cc"
+            emissive="#ffbf62"
+            emissiveIntensity={3.2}
+            roughness={0.2}
           />
         </mesh>
         <mesh position={[0, 3.82, 0]} castShadow>
           <coneGeometry args={[0.82, 0.55, 24]} />
-          <meshStandardMaterial color={colors.terracotta} />
+          <meshStandardMaterial
+            color="#b96d40"
+            map={grain}
+            metalness={0.28}
+            roughness={0.72}
+          />
+        </mesh>
+        <mesh position={[0, 3.55, 0]} rotation={[Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[0.76, 0.025, 6, 32]} />
+          <meshStandardMaterial
+            color="#c1a66e"
+            metalness={0.55}
+            roughness={0.58}
+          />
         </mesh>
         {Array.from({ length: 8 }, (_, i) => (
           <Timber
@@ -593,6 +1255,34 @@ function Landmark({ kind }) {
           scale={[0.4, 0.85, 0.08]}
           color={colors.woodDark}
         />
+        {[
+          [1.23, 0.65],
+          [2.37, 0.554],
+        ].map(([y, z]) => (
+          <group key={y} position={[0, y, z]}>
+            <mesh rotation={[Math.PI / 2, 0, 0]}>
+              <cylinderGeometry args={[0.105, 0.105, 0.02, 20]} />
+              <meshStandardMaterial
+                color="#243a3d"
+                roughness={0.24}
+                metalness={0.12}
+              />
+            </mesh>
+            <mesh>
+              <torusGeometry args={[0.115, 0.026, 8, 24]} />
+              <meshStandardMaterial
+                color="#bda56e"
+                metalness={0.6}
+                roughness={0.54}
+              />
+            </mesh>
+            <Timber
+              position={[0, 0, 0.025]}
+              scale={[0.018, 0.2, 0.02]}
+              color="#cab985"
+            />
+          </group>
+        ))}
       </group>
     )
   if (kind === 'provider')
@@ -607,10 +1297,21 @@ function Landmark({ kind }) {
             args={[1.1, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2]}
           />
           <meshStandardMaterial
-            color="#995632"
+            color="#b3754b"
             map={grain}
-            metalness={0.1}
-            roughness={0.86}
+            metalness={0.3}
+            roughness={0.72}
+            onBeforeCompile={(shader) => {
+              shader.fragmentShader = shader.fragmentShader.replace(
+                '#include <color_fragment>',
+                `#include <color_fragment>
+        float seam = 1.0 - smoothstep(0.015, 0.035, abs(fract(vMapUv.x * 12.0) - 0.5));
+        vec2 weather=vMapUv*vec2(31.0,17.0),cell=floor(weather),f=fract(weather);f=f*f*(3.0-2.0*f);
+        vec4 patches=fract(sin(vec4(dot(cell,vec2(127.1,311.7)),dot(cell+vec2(1,0),vec2(127.1,311.7)),dot(cell+vec2(0,1),vec2(127.1,311.7)),dot(cell+vec2(1,1),vec2(127.1,311.7))))*43758.5453);
+        float patina=smoothstep(0.5,0.85,mix(mix(patches.x,patches.y,f.x),mix(patches.z,patches.w,f.x),f.y))*(1.0-vMapUv.y)*0.38;
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.13, 0.3, 0.24), patina) * (1.0 - seam * 0.24);`,
+              )
+            }}
           />
         </mesh>
         <mesh
@@ -647,12 +1348,31 @@ function Landmark({ kind }) {
         />
       ))}
       {[-1, 1].map((s) => (
-        <Timber
+        <group
           key={s}
           position={[s * 0.58, 1.54, 0]}
-          scale={[1.28, 0.12, 1.65]}
           rotation={[0, 0, -s * 0.55]}
-          color={kind === 'mcp' ? '#786344' : colors.terracotta}
+        >
+          <Timber
+            scale={[1.28, 0.12, 1.65]}
+            color={kind === 'mcp' ? '#786344' : colors.terracotta}
+          />
+          {[-0.4, 0, 0.4].map((x) => (
+            <Timber
+              key={x}
+              position={[x, 0.065, 0]}
+              scale={[0.025, 0.025, 1.62]}
+              color={kind === 'mcp' ? '#b4a27c' : '#c58053'}
+            />
+          ))}
+        </group>
+      ))}
+      {[-0.94, 0.94].map((x) => (
+        <Timber
+          key={x}
+          position={[x, 0.65, 0.685]}
+          scale={[0.095, 1.3, 0.06]}
+          color="#ba9c70"
         />
       ))}
       <Timber
@@ -667,6 +1387,28 @@ function Landmark({ kind }) {
           <Timber scale={[0.45, 0.035, 0.08]} color="#e4d4b2" />
         </group>
       ))}
+      {[-0.64, 0.64].flatMap((x) =>
+        [-1, 1].map((side) => (
+          <group
+            key={`${x}${side}`}
+            position={[x + side * 0.29, 0.78, 0.7]}
+            rotation={[0, side * 0.18, 0]}
+          >
+            <Timber
+              scale={[0.14, 0.48, 0.05]}
+              color={kind === 'mcp' ? '#658075' : '#54766a'}
+            />
+            {[-0.14, 0, 0.14].map((y) => (
+              <Timber
+                key={y}
+                position={[0, y, 0.035]}
+                scale={[0.13, 0.025, 0.035]}
+                color="#b2ac82"
+              />
+            ))}
+          </group>
+        )),
+      )}
       {kind === 'mcp' &&
         [-1, 0, 1].map((x) => (
           <Timber
@@ -676,17 +1418,94 @@ function Landmark({ kind }) {
             color="#a08053"
           />
         ))}
+      <Chimney position={[0.55, 1.72, -0.3]} />
     </group>
   )
 }
 
 function Island({ position, label, visible, kind, labelPosition }) {
   const seed = { browser: 1, server: 3, provider: 6, mcp: 9 }[kind]
+  const anchor = useRef()
+  useEffect(() => {
+    seaIslands.add(anchor)
+    return () => seaIslands.delete(anchor)
+  }, [])
+  const rock = useMemo(() => {
+    const geometry = new THREE.IcosahedronGeometry(1, 2),
+      points = geometry.attributes.position,
+      tints = []
+    for (let i = 0; i < points.count; i++) {
+      const x = points.getX(i),
+        y = points.getY(i),
+        z = points.getZ(i)
+      const grain = 0.5 + 0.5 * Math.sin(x * 13 + y * 17 + z * 11 + seed),
+        radius = 0.89 + 0.11 * grain
+      points.setXYZ(i, x * radius, y * radius, z * radius)
+      const color = new THREE.Color('#8e9181').lerp(
+        new THREE.Color('#d2c6a7'),
+        THREE.MathUtils.clamp((y + 1) * 0.4 + grain * 0.2, 0, 1),
+      )
+      tints.push(color.r, color.g, color.b)
+    }
+    geometry.setAttribute('color', new THREE.Float32BufferAttribute(tints, 3))
+    geometry.computeVertexNormals()
+    return geometry
+  }, [seed])
+  useEffect(() => () => rock.dispose(), [rock])
+  const foliage = useMemo(() => {
+    const vertices = [],
+      indices = [],
+      tints = []
+    for (const [cx, cy, cz] of [
+      [-1.8, 0.75, -0.45],
+      [1.55, 0.72, -0.7],
+      [-1.2, 0.74, 1.05],
+    ])
+      for (let blade = 0; blade < 9; blade++) {
+        const a = (blade * Math.PI * 2) / 9 + seed,
+          start = vertices.length / 3
+        for (let segment = 0; segment <= 6; segment++)
+          for (const side of [-1, 1]) {
+            const t = segment / 6,
+              r = t * (0.5 + (blade % 3) * 0.06),
+              width = Math.sin(t * Math.PI) * 0.12 * side
+            vertices.push(
+              cx + Math.cos(a) * r - Math.sin(a) * width,
+              cy + Math.sin(t * Math.PI) * 0.32 + t * 0.08,
+              cz + Math.sin(a) * r + Math.cos(a) * width,
+            )
+            const color = new THREE.Color(
+              blade % 2 ? '#3f6d40' : '#74984e',
+            ).multiplyScalar(0.8 + t * 0.2)
+            tints.push(color.r, color.g, color.b)
+            if (segment < 6 && side === -1) {
+              const i = start + segment * 2
+              indices.push(i, i + 1, i + 2, i + 1, i + 3, i + 2)
+            }
+          }
+      }
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute(
+      'position',
+      new THREE.Float32BufferAttribute(vertices, 3),
+    )
+    geometry.setAttribute('color', new THREE.Float32BufferAttribute(tints, 3))
+    geometry.setIndex(indices)
+    geometry.computeVertexNormals()
+    return geometry
+  }, [seed])
+  useEffect(() => () => foliage.dispose(), [foliage])
   return (
-    <group position={position}>
-      <Shore radius={3.3} height={0.24} seed={seed} color="#decda4" />
-      <Shore radius={2.72} height={0.78} seed={seed} color="#827858" />
-      <Shore radius={2.3} height={0.89} seed={seed} color="#a49b70" />
+    <group ref={anchor} position={position}>
+      <Shore seed={seed} />
+      <Meadow seed={seed} />
+      <mesh geometry={foliage} castShadow receiveShadow>
+        <meshStandardMaterial
+          vertexColors
+          side={THREE.DoubleSide}
+          roughness={0.93}
+        />
+      </mesh>
       <Landmark kind={kind} />
       {[
         [-1.8, 0.7, -0.6],
@@ -700,19 +1519,73 @@ function Island({ position, label, visible, kind, labelPosition }) {
         return (
           <mesh
             key={i}
+            geometry={rock}
             position={[Math.cos(a) * 2.6, 0.22, Math.sin(a) * 2.1]}
             scale={[0.45 + (i % 3) * 0.1, 0.28, 0.32]}
             rotation={[i, i * 0.3, i * 0.7]}
             castShadow
+            receiveShadow
           >
-            <icosahedronGeometry args={[1, 1]} />
             <meshStandardMaterial
-              color={i % 2 ? '#82765c' : '#b1a184'}
-              roughness={1}
+              vertexColors
+              color={i % 2 ? '#bfc4b4' : '#ffffff'}
+              map={grain}
+              roughness={0.94}
             />
           </mesh>
         )
       })}
+      <group position={[1.5, 0.65, 0.8]} rotation={[0, seed, 0]}>
+        <mesh position={[0, 0.22, 0]} castShadow>
+          <cylinderGeometry args={[0.18, 0.16, 0.43, 12]} />
+          <meshStandardMaterial
+            color="#b99b70"
+            map={wood}
+            normalMap={woodNormal}
+            roughness={0.94}
+          />
+        </mesh>
+        {[-0.13, 0.13].map((y) => (
+          <mesh
+            key={y}
+            position={[0, 0.22 + y, 0]}
+            rotation={[Math.PI / 2, 0, 0]}
+          >
+            <torusGeometry args={[0.18, 0.022, 5, 16]} />
+            <meshStandardMaterial
+              color="#54594f"
+              metalness={0.55}
+              roughness={0.72}
+            />
+          </mesh>
+        ))}
+        <mesh position={[0.36, 0.035, 0.04]} rotation={[-Math.PI / 2, 0, 0.3]}>
+          <torusGeometry args={[0.16, 0.027, 5, 20, Math.PI * 1.85]} />
+          <meshStandardMaterial color="#c9b78e" roughness={1} />
+        </mesh>
+        <mesh position={[0.36, 0.075, 0.04]} rotation={[-Math.PI / 2, 0, 0.1]}>
+          <torusGeometry args={[0.11, 0.026, 5, 20, Math.PI * 1.8]} />
+          <meshStandardMaterial color="#b7a079" roughness={1} />
+        </mesh>
+      </group>
+      {[
+        [-1, 0.33, 1.95],
+        [-0.78, 0.32, 2.02],
+        [-0.88, 0.35, 1.77],
+      ].map((p, i) => (
+        <mesh
+          key={`shell${i}`}
+          position={p}
+          rotation={[0, i * 0.9, 0.15]}
+          scale={[0.1, 0.035, 0.075]}
+        >
+          <sphereGeometry args={[1, 8, 5]} />
+          <meshStandardMaterial
+            color={i % 2 ? '#e4c7a7' : '#f5e6c7'}
+            roughness={0.7}
+          />
+        </mesh>
+      ))}
       <Dock
         position={[
           0,
@@ -728,81 +1601,6 @@ function Island({ position, label, visible, kind, labelPosition }) {
         />
       )}
     </group>
-  )
-}
-
-function Ocean({ mcp, mcpReveal }) {
-  const material = useRef()
-  const uniforms = useMemo(
-    () => ({
-      time: { value: 0 },
-      mcp: { value: 0 },
-      mcpExtra: { value: new THREE.Vector2() },
-    }),
-    [],
-  )
-  useFrame(({ clock }, dt) => {
-    if (material.current) {
-      material.current.uniforms.time.value = clock.elapsedTime
-      material.current.uniforms.mcp.value = mcpReveal
-        ? mcpReveal.current[0]
-        : THREE.MathUtils.damp(
-            material.current.uniforms.mcp.value,
-            mcp ? 1 : 0,
-            1.2,
-            dt,
-          )
-      material.current.uniforms.mcpExtra.value.set(
-        mcpReveal?.current[1] || 0,
-        mcpReveal?.current[2] || 0,
-      )
-    }
-  })
-  return (
-    <mesh position={[0, MAP_Y - 0.07, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-      <planeGeometry args={[1000, 1000, 220, 220]} />
-      <shaderMaterial
-        ref={material}
-        uniforms={uniforms}
-        vertexShader={`
-      uniform float time; varying vec3 vWorld;
-      void main() { vec3 p=position; p.z=sin(p.x*.8+time*.7)*.075+sin(p.y*1.3-time*.55)*.045;
-        vec4 world=modelMatrix*vec4(p,1.); vWorld=world.xyz; gl_Position=projectionMatrix*viewMatrix*world; }
-    `}
-        fragmentShader={`
-      uniform float time; uniform float mcp; uniform vec2 mcpExtra; varying vec3 vWorld;
-      float hash(vec2 p) { return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
-      float noise(vec2 p) { vec2 i=floor(p),f=fract(p); f=f*f*(3.-2.*f); return mix(mix(hash(i),hash(i+vec2(1.,0.)),f.x),mix(hash(i+vec2(0.,1.)),hash(i+vec2(1.,1.)),f.x),f.y); }
-      float wave(vec2 p) {
-        float swell=noise(p*.22+vec2(time*.025,0.))*4.;
-        return sin(p.x*1.6+p.y*.7+time*.8+swell)*.38
-          +sin(p.y*2.7-p.x*.6-time*.65+noise(p*.35)*3.)*.2
-          +sin(p.x*6.+p.y*3.+time+noise(p*.8)*5.)*.07
-          +(noise(p*7.+time*.1)-.5)*.04;
-      }
-      void main() { vec2 p=vWorld.xz; float w=wave(p); float dx=(wave(p+vec2(.04,0.))-w)/.04; float dz=(wave(p+vec2(0.,.04))-w)/.04;
-        vec3 n=normalize(vec3(-dx*.35,1.,-dz*.35)); vec3 viewDir=normalize(cameraPosition-vWorld); vec3 sun=normalize(vec3(-.3,.88,.38));
-        float reflection=max(dot(reflect(-sun,n),viewDir),0.); float fres=pow(1.-max(dot(viewDir,n),0.),3.);
-        vec3 col=mix(vec3(.018,.105,.205),vec3(.055,.32,.48),.42+w*.4+fres*.3);
-        col+=pow(reflection,120.)*.7+pow(reflection,20.)*.12; float foam=0.; float shallow=0.;
-        vec2 c[3]; c[0]=vec2(-10.,7.); c[1]=vec2(0.,-7.); c[2]=vec2(10.,7.);
-        for(int i=0;i<3;i++){ vec2 q=p-c[i]; float d=length(q*vec2(1.,1.2)); float edge=3.35+sin(atan(q.y,q.x)*7.)*.16; foam+=exp(-pow((d-edge-w*.15)*5.,2.))*.65; shallow+=exp(-max(d-3.,0.)*.7)*.08; }
-        col+=vec3(shallow*.22,shallow*.82,shallow);
-        float mcpDistance=length((p-vec2(0.,-20.))*vec2(1.,1.2));
-        foam+=exp(-pow((mcpDistance-3.4-w*.15)*5.,2.))*.65*mcp;
-        float referenceDistance=length((p-vec2(-10.,-18.))*vec2(1.,1.2));
-        float catalogDistance=length((p-vec2(10.,-18.))*vec2(1.,1.2));
-        foam+=exp(-pow((referenceDistance-3.4-w*.15)*5.,2.))*.65*mcpExtra.x;
-        foam+=exp(-pow((catalogDistance-3.4-w*.15)*5.,2.))*.65*mcpExtra.y;
-        col=mix(col,vec3(.88,.95,.97),clamp(foam+smoothstep(.58,.67,w)*noise(p*.8)*.1,0.,.65));
-        float fog=1.-exp(-max(length(cameraPosition-vWorld)-30.,0.)*.007); col=mix(col,vec3(.35,.56,.7),fog);
-        gl_FragColor=vec4(col,1.);
-        #include <tonemapping_fragment>
-        #include <colorspace_fragment>
-      }
-    `}
-      />
-    </mesh>
   )
 }
 
@@ -848,7 +1646,210 @@ function Cargo({ text }) {
   )
 }
 
+const funnelTop = [0, 1.52, -0.49]
+
+// Soft rising smoke. The puffs live in world space, so they trail behind a
+// moving source (the ferry) and rise straight up from a still one (a chimney).
+// Each puff fades toward its outline, and puffs overlap into a soft plume.
+function Smoke({
+  source,
+  offset,
+  every = 0.065,
+  life = 1.6,
+  rise = 0.4,
+  size = [0.045, 0.2],
+  opacity = 0.5,
+}) {
+  const count = Math.ceil(life / every) + 1
+  const mesh = useRef()
+  const emitter = useMemo(() => new THREE.Vector3(...offset), [offset])
+  const geometry = useMemo(() => {
+    const shape = puff.clone()
+    shape.setAttribute(
+      'life',
+      new THREE.InstancedBufferAttribute(new Float32Array(count).fill(1), 1),
+    )
+    return shape
+  }, [count])
+  useEffect(() => () => geometry.dispose(), [geometry])
+  const uniforms = useMemo(() => ({ opacity: { value: opacity } }), [opacity])
+  const state = useMemo(
+    () => ({
+      puffs: Array.from({ length: count }, () => ({
+        age: 99,
+        position: new THREE.Vector3(),
+        drift: new THREE.Vector3(),
+      })),
+      clock: 0,
+      next: 0,
+      slot: 0,
+      object: new THREE.Object3D(),
+    }),
+    [count],
+  )
+  const reduced = useMemo(
+    () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+    [],
+  )
+  useLayoutEffect(() => {
+    mesh.current.matrixWorldAutoUpdate = false
+    mesh.current.matrixWorld.identity()
+  }, [])
+  useFrame((_, delta) => {
+    if (!mesh.current || !source.current) return
+    const dt = Math.min(delta, 0.05)
+    const ages = geometry.attributes.life
+    state.clock += dt
+    if (!reduced && state.clock >= state.next) {
+      state.next = state.clock + every
+      const smoke = state.puffs[state.slot]
+      state.slot = (state.slot + 1) % count
+      source.current.updateWorldMatrix(true, false)
+      smoke.position.copy(emitter)
+      source.current.localToWorld(smoke.position)
+      smoke.drift.set(
+        (Math.random() - 0.5) * 0.12,
+        rise * (0.9 + Math.random() * 0.25),
+        (Math.random() - 0.5) * 0.12,
+      )
+      smoke.age = 0
+    }
+    state.puffs.forEach((smoke, i) => {
+      smoke.age += dt
+      const t = Math.min(smoke.age / life, 1)
+      smoke.position.addScaledVector(smoke.drift, dt)
+      smoke.position.x += 0.12 * dt
+      state.object.position.copy(smoke.position)
+      state.object.scale.setScalar(t >= 1 ? 0 : size[0] + t * size[1])
+      state.object.updateMatrix()
+      mesh.current.setMatrixAt(i, state.object.matrix)
+      ages.setX(i, t)
+    })
+    mesh.current.instanceMatrix.needsUpdate = true
+    ages.needsUpdate = true
+  })
+  return (
+    <instancedMesh
+      ref={mesh}
+      args={[geometry, undefined, count]}
+      frustumCulled={false}
+    >
+      <shaderMaterial
+        transparent
+        depthWrite={false}
+        uniforms={uniforms}
+        vertexShader={`
+          attribute float life;
+          varying float vLife;
+          varying vec3 vNormal;
+          varying vec3 vView;
+          void main() {
+            vLife = life;
+            vNormal = normalize(mat3(instanceMatrix) * normal);
+            vec4 world = instanceMatrix * vec4(position, 1.0);
+            vView = cameraPosition - world.xyz;
+            gl_Position = projectionMatrix * viewMatrix * world;
+          }
+        `}
+        fragmentShader={`
+          uniform float opacity;
+          varying float vLife;
+          varying vec3 vNormal;
+          varying vec3 vView;
+          void main() {
+            vec3 n = normalize(vNormal);
+            float facing = clamp(dot(n, normalize(vView)), 0.0, 1.0);
+            float alpha = pow(1.0 - vLife, 2.2) * min(1.0, vLife * 12.0) * opacity * facing * facing * facing;
+            float light = 0.62 + 0.38 * max(dot(n, normalize(vec3(-0.4, 0.8, -0.3))), 0.0);
+            gl_FragColor = vec4(vec3(0.95, 0.94, 0.92) * light, alpha);
+          }
+        `}
+      />
+    </instancedMesh>
+  )
+}
+
+const pennant = (() => {
+  const geometry = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(0, 0.055, 0),
+    new THREE.Vector3(0, -0.055, 0),
+    new THREE.Vector3(0, 0, -0.24),
+  ])
+  geometry.computeVertexNormals()
+  return geometry
+})()
+
+if (import.meta.hot) import.meta.hot.dispose(() => pennant.dispose())
+
+function Pennant() {
+  const flag = useRef()
+  const reduced = useMemo(
+    () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+    [],
+  )
+  useFrame(({ clock }) => {
+    if (flag.current && !reduced)
+      flag.current.rotation.y = Math.sin(clock.elapsedTime * 4.2) * 0.22
+  })
+  return (
+    <group position={[0.3, 1.16, 0.1]}>
+      <mesh position={[0, 0.28, 0]}>
+        <cylinderGeometry args={[0.012, 0.014, 0.56, 6]} />
+        <meshStandardMaterial color="#3e3529" roughness={0.8} />
+      </mesh>
+      <mesh ref={flag} geometry={pennant} position={[0, 0.5, 0]}>
+        <meshStandardMaterial
+          color="#f2e7c9"
+          roughness={0.9}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+    </group>
+  )
+}
+
 function Boat({ cargo }) {
+  const boat = useRef()
+  const motion = useMemo(
+    () => ({
+      previous: new THREE.Vector3(),
+      current: new THREE.Vector3(),
+      ready: false,
+      time: -1,
+    }),
+    [],
+  )
+  const wakeUniforms = useMemo(
+    () => ({ time: { value: 0 }, speed: { value: 0 } }),
+    [],
+  )
+  const reduced = useMemo(
+    () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+    [],
+  )
+  useFrame(({ clock }) => {
+    wakeUniforms.time.value = clock.elapsedTime
+  })
+  const updateWake = () => {
+    if (!boat.current || motion.time === wakeUniforms.time.value) return
+    const dt = wakeUniforms.time.value - motion.time
+    motion.time = wakeUniforms.time.value
+    boat.current.getWorldPosition(motion.current)
+    const distance = Math.hypot(
+      motion.current.x - motion.previous.x,
+      motion.current.z - motion.previous.z,
+    )
+    const speed =
+      motion.ready && dt > 0 && distance < 1 && !reduced
+        ? THREE.MathUtils.clamp(distance / dt / 5, 0, 1)
+        : 0
+    wakeUniforms.speed.value =
+      !motion.ready || distance >= 1 || reduced
+        ? 0
+        : THREE.MathUtils.damp(wakeUniforms.speed.value, speed, 12, dt)
+    motion.previous.copy(motion.current)
+    motion.ready = true
+  }
   const hull = useMemo(() => {
     const shape = new THREE.Shape()
     shape.moveTo(-0.53, -0.9)
@@ -870,10 +1871,14 @@ function Boat({ cargo }) {
   }, [])
   useEffect(() => () => hull.dispose(), [hull])
   return (
-    <group scale={0.82}>
+    <group ref={boat} scale={0.82}>
       {cargo && <Cargo text={cargo} />}
       <mesh geometry={hull} castShadow>
-        <meshStandardMaterial color={colors.terracotta} roughness={0.43} />
+        <meshStandardMaterial
+          color={colors.terracotta}
+          map={grain}
+          roughness={0.72}
+        />
       </mesh>
       <Timber
         position={[0, 0.4, -0.15]}
@@ -907,6 +1912,12 @@ function Boat({ cargo }) {
         <cylinderGeometry args={[0.1, 0.13, 0.4, 12]} />
         <meshStandardMaterial color={colors.charcoal} />
       </mesh>
+      <mesh position={[0, 1.4, -0.49]}>
+        <cylinderGeometry args={[0.105, 0.105, 0.06, 12]} />
+        <meshStandardMaterial color={colors.terracotta} roughness={0.6} />
+      </mesh>
+      <Smoke source={boat} offset={funnelTop} />
+      <Pennant />
       {[-1, 1].flatMap((s) =>
         [-0.75, -0.3, 0.25, 0.7].map((z) => (
           <Timber
@@ -931,20 +1942,307 @@ function Boat({ cargo }) {
           <meshStandardMaterial color="#38382e" />
         </mesh>
       ))}
-      <mesh position={[0, 0.02, -1.55]} rotation={[-Math.PI / 2, 0, 0]}>
+      {[-1, 1].map((side) => (
+        <group key={`trim${side}`}>
+          <Timber
+            position={[side * 0.49, 0.3, -0.24]}
+            scale={[0.025, 0.04, 1.35]}
+            color="#d6bc89"
+          />
+          {[-0.55, -0.1, 0.35].map((z) => (
+            <mesh
+              key={z}
+              position={[side * 0.508, 0.3, z]}
+              rotation={[0, 0, Math.PI / 2]}
+            >
+              <cylinderGeometry args={[0.025, 0.025, 0.02, 6]} />
+              <meshStandardMaterial
+                color="#585d53"
+                metalness={0.6}
+                roughness={0.65}
+              />
+            </mesh>
+          ))}
+        </group>
+      ))}
+      <mesh
+        onBeforeRender={updateWake}
+        position={[0, 0.02, -1.55]}
+        rotation={[-Math.PI / 2, 0, 0]}
+      >
         <planeGeometry args={[1.1, 1.2]} />
-        <meshBasicMaterial
-          color="#f5f0d6"
+        <shaderMaterial
+          uniforms={wakeUniforms}
           transparent
-          opacity={0.17}
           depthWrite={false}
+          vertexShader={`varying vec2 water;void main(){water=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`}
+          fragmentShader={`
+        varying vec2 water;uniform float time;uniform float speed;
+        void main(){
+          float trail=water.y;
+          float side=abs(water.x-.5);
+          float arm=(side-(.08+trail*.3))*19.;
+          float arms=exp(-arm*arm);
+          float churn=exp(-side*side*32.)*(.5+.5*sin(trail*42.-time*8.));
+          float fade=smoothstep(0.,.15,trail)*(1.-smoothstep(.82,1.,trail));
+          gl_FragColor=vec4(.88,.94,.87,(arms*.7+churn*.25)*fade*speed);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }
+      `}
         />
       </mesh>
     </group>
   )
 }
 
-function PirateShip() {
+// Foam around the hull, a bow wave and a widening wake behind the stern.
+// Coordinates are ship units; the bow points to +z.
+function ShipWake({ strength = 1 }) {
+  const uniforms = useMemo(
+    () => ({
+      time: { value: 0 },
+      strength: { value: strength },
+      // Just above the highest swell, so waves never cut the foam.
+      waterY: { value: MAP_Y + 0.06 },
+    }),
+    [strength],
+  )
+  const reduced = useMemo(
+    () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+    [],
+  )
+  useFrame(({ clock }) => {
+    uniforms.time.value = reduced ? 0 : clock.elapsedTime
+  })
+  return (
+    <mesh
+      position={[0, -0.04, -3.6]}
+      rotation={[-Math.PI / 2, 0, 0]}
+      frustumCulled={false}
+    >
+      <planeGeometry args={[6.4, 12.8]} />
+      <shaderMaterial
+        uniforms={uniforms}
+        transparent
+        depthWrite={false}
+        polygonOffset
+        polygonOffsetFactor={-2}
+        vertexShader={`
+          uniform float waterY;
+          varying vec2 vShip;
+          void main() {
+            vShip = vec2(position.x, -position.y - 3.6);
+            // Lay the wake flat on the water, whatever the ship's roll.
+            vec4 world = modelMatrix * vec4(position, 1.0);
+            world.y = waterY;
+            gl_Position = projectionMatrix * viewMatrix * world;
+          }
+        `}
+        fragmentShader={`
+          uniform float time, strength;
+          varying vec2 vShip;
+          ${oceanNoise}
+          float halfWidth(float z) {
+            if (z > 0.2) { float t = clamp((z - 0.2) / 2.0, 0.0, 1.0); return 0.86 * (1.0 - t * t); }
+            float t = clamp((0.2 - z) / 2.15, 0.0, 1.0);
+            return 0.86 * sqrt(max(0.0, 1.0 - t * t * t * t));
+          }
+          void main() {
+            float x = vShip.x, z = vShip.y, ax = abs(x);
+            // Water flows past the ship toward the stern: advect the noise.
+            vec2 flow = vec2(x, z + time * 1.1);
+
+            // Thin, broken foam hugging the hull, strongest at the bow.
+            float w = halfWidth(z);
+            float alongHull = step(-1.95, z) * step(z, 2.2);
+            float inside = step(ax, w) * alongHull;
+            float hull = exp(-abs(ax - w) * 16.0) * alongHull
+              * (0.3 + 0.7 * smoothstep(-1.4, 2.0, z));
+
+            float behind = -1.9 - z, arms = 0.0, churn = 0.0, ridges = 0.0;
+            if (behind > 0.0) {
+              // Kelvin arms (about 19 degrees): they widen, feather and fade.
+              float spread = 0.5 + behind * 0.34;
+              float width = 0.05 + behind * 0.045;
+              float across = (ax - spread) / width;
+              float feather = smoothstep(-0.2, 0.45,
+                gnoised(vec2(behind * 2.6 - time * 0.4, across * 0.9 + x)).x);
+              arms = exp(-across * across) * exp(-behind * 0.16)
+                * smoothstep(0.0, 0.9, behind) * (0.35 + 0.65 * feather);
+
+              // Churning trail right behind the stern.
+              float trailWidth = 0.42 + behind * 0.07;
+              float core = exp(-(x * x) / (trailWidth * trailWidth)) * exp(-behind * 0.3);
+              float boil = gnoised(flow * vec2(2.2, 1.4)).x * 0.65
+                + gnoised(flow * vec2(5.1, 3.3) + 7.0).x * 0.35;
+              churn = core * smoothstep(-0.35, 0.4, boil);
+
+              // Faint curved transverse waves between the arms, broken up
+              // so they do not read as a regular net.
+              float between = 1.0 - smoothstep(spread - width * 2.0, spread, ax);
+              float patchy = smoothstep(0.0, 0.5, gnoised(vec2(x * 1.3, behind * 0.9) + 4.0).x);
+              ridges = pow(max(0.0, sin(behind * 6.0 - x * x * 1.4 - time * 2.4)), 6.0)
+                * between * exp(-behind * 0.38) * 0.16 * patchy;
+            }
+            float grain = 0.55 + 0.45 * gnoised(flow * 9.0).x;
+            float foam = (hull * grain + arms + churn * 0.95 + ridges) * (1.0 - inside);
+            // Fade to zero well inside the plane, so its edges never show.
+            float window = (1.0 - smoothstep(2.4, 3.1, ax))
+              * smoothstep(-9.6, -7.0, z) * (1.0 - smoothstep(2.3, 2.75, z));
+            gl_FragColor = vec4(vec3(0.92, 0.97, 0.96), clamp(foam, 0.0, 1.0) * 0.8 * strength * window);
+          }
+        `}
+      />
+    </mesh>
+  )
+}
+
+const barrel = new THREE.CylinderGeometry(0.085, 0.075, 0.2, 14)
+const hoop = new THREE.TorusGeometry(0.087, 0.008, 5, 18)
+
+if (import.meta.hot)
+  import.meta.hot.dispose(() => {
+    barrel.dispose()
+    hoop.dispose()
+  })
+
+// Deck dressing for the large section-divider ship.
+function ShipDeck() {
+  return (
+    <group>
+      {[
+        [0.34, 0.3],
+        [0.18, 0.42],
+        [-0.33, -0.42],
+      ].map(([x, z]) => (
+        <group key={`${x}${z}`} position={[x, 0.71, z]}>
+          <mesh geometry={barrel} castShadow>
+            <meshStandardMaterial color="#8a6a45" map={wood} roughness={0.9} />
+          </mesh>
+          {[-0.06, 0.06].map((y) => (
+            <mesh
+              key={y}
+              geometry={hoop}
+              position={[0, y, 0]}
+              rotation={[Math.PI / 2, 0, 0]}
+            >
+              <meshStandardMaterial
+                color="#3f3b33"
+                metalness={0.6}
+                roughness={0.5}
+              />
+            </mesh>
+          ))}
+        </group>
+      ))}
+      <Timber
+        position={[-0.34, 0.69, 0.32]}
+        scale={[0.2, 0.18, 0.2]}
+        color="#b08d5a"
+      />
+      <Timber
+        position={[-0.3, 0.84, 0.3]}
+        rotation={[0, 0.5, 0]}
+        scale={[0.14, 0.12, 0.14]}
+        color="#c4a36c"
+      />
+      <mesh position={[0.3, 0.625, 1.25]} rotation={[-Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[0.08, 0.024, 6, 18]} />
+        <meshStandardMaterial color="#c9b080" roughness={1} />
+      </mesh>
+      <group position={[0, 1.43, -0.98]}>
+        <Timber
+          position={[0, -0.13, -0.04]}
+          scale={[0.06, 0.26, 0.06]}
+          color="#5b4630"
+        />
+        <mesh>
+          <torusGeometry args={[0.15, 0.014, 6, 24]} />
+          <meshStandardMaterial color="#7a5a3a" roughness={0.8} />
+        </mesh>
+        {Array.from({ length: 8 }, (_, i) => (
+          <Timber
+            key={i}
+            rotation={[0, 0, (i * Math.PI) / 4]}
+            scale={[0.012, 0.4, 0.012]}
+            color="#a07c50"
+          />
+        ))}
+        <mesh rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.03, 0.03, 0.04, 10]} />
+          <meshStandardMaterial color="#c2a46c" metalness={0.6} roughness={0.4} />
+        </mesh>
+      </group>
+      {[-1, 1].map((side) => (
+        <group key={side} position={[side * 0.47, 1.33, -1.72]}>
+          <mesh>
+            <boxGeometry args={[0.07, 0.1, 0.07]} />
+            <meshStandardMaterial
+              color="#ffe2a6"
+              emissive="#ffb24f"
+              emissiveIntensity={4}
+            />
+          </mesh>
+          <mesh position={[0, 0.065, 0]}>
+            <coneGeometry args={[0.055, 0.05, 4]} />
+            <meshStandardMaterial color="#2f2d28" metalness={0.5} />
+          </mesh>
+        </group>
+      ))}
+    </group>
+  )
+}
+
+// Sails breathe in the wind. The logo on a sail uses the same motion, so the
+// mark stays on the cloth.
+const sailClock = { value: 0 }
+function flutter(shader) {
+  shader.uniforms.sailClock = sailClock
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nuniform float sailClock;')
+    .replace(
+      '#include <begin_vertex>',
+      `#include <begin_vertex>
+      transformed.z += sin(sailClock * 2.3 + position.y * 2.6 + position.x * 1.2)
+        * 0.022 * (1.0 - min(abs(position.y) / 0.7, 1.0));`,
+    )
+}
+function shadeSail(shader) {
+  flutter(shader)
+  shader.fragmentShader = shader.fragmentShader.replace(
+    '#include <color_fragment>',
+    '#include <color_fragment>\ndiffuseColor.rgb *= 0.94 + 0.06 * sin(vMapUv.x * 410.0) * sin(vMapUv.y * 390.0);',
+  )
+}
+// Hulls get a dark tarred band at the waterline.
+function shadeHull(shader) {
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying float vHullY;')
+    .replace(
+      '#include <begin_vertex>',
+      '#include <begin_vertex>\nvHullY = position.y;',
+    )
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', '#include <common>\nvarying float vHullY;')
+    .replace(
+      '#include <color_fragment>',
+      '#include <color_fragment>\ndiffuseColor.rgb *= mix(0.3, 1.0, smoothstep(0.1, 0.17, vHullY));',
+    )
+    .replace(
+      '#include <roughnessmap_fragment>',
+      '#include <roughnessmap_fragment>\nroughnessFactor=max(roughnessFactor,0.84);',
+    )
+}
+
+function PirateShip({ mark, wake = 0.55 }) {
+  const reduced = useMemo(
+    () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+    [],
+  )
+  useFrame(({ clock }) => {
+    if (!reduced) sailClock.value = clock.elapsedTime
+  })
   const hull = useMemo(() => {
     const outline = new THREE.Shape()
     outline.moveTo(-0.64, -1.7)
@@ -972,8 +2270,8 @@ function PirateShip() {
       p.setXYZ(
         i,
         x * (0.91 - y * 0.12),
-        y,
-        0.23 * Math.cos(x * 1.4) * Math.cos(y * 1.5),
+        y - 0.045 * Math.cos(x * 2.7) * Math.max(0, -y),
+        0.32 * Math.cos(x * 1.4) * Math.cos(y * 1.5),
       )
     }
     geo.computeVertexNormals()
@@ -984,24 +2282,92 @@ function PirateShip() {
     for (const z of [-0.8, 0.65]) {
       for (const x of [-0.65, 0.65])
         vertices.push(0, 3.6, z, x, 0.6, z + 0.55, 0, 3.6, z, x, 0.6, z - 0.55)
+      for (let rung = 0; rung < 7; rung++) {
+        const t = rung / 9,
+          y = 0.7 + t * 2.8,
+          width = 0.6 * (1 - t)
+        vertices.push(-width, y, z + 0.5 * (1 - t), width, y, z + 0.5 * (1 - t))
+      }
+      // The old seam lines across the sails are gone: the sails now move in
+      // the wind, and fixed lines on them read as tears.
     }
     vertices.push(0, 3.7, -0.8, 0, 0.65, -1.8, 0, 3.7, 0.65, 0, 0.65, 2.45)
     const geo = new THREE.BufferGeometry()
     geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3))
     return geo
-  }, [])
+  }, [mark])
+  // The close-up divider ship gets real rope tubes instead of 1px lines.
+  const ropeTubes = useMemo(() => {
+    if (!mark) return null
+    const points = ropes.attributes.position,
+      a = new THREE.Vector3(),
+      b = new THREE.Vector3(),
+      up = new THREE.Vector3(0, 1, 0),
+      turn = new THREE.Quaternion(),
+      place = new THREE.Matrix4(),
+      one = new THREE.Vector3(1, 1, 1),
+      parts = []
+    for (let i = 0; i < points.count; i += 2) {
+      a.fromBufferAttribute(points, i)
+      b.fromBufferAttribute(points, i + 1)
+      const length = a.distanceTo(b)
+      if (length < 1e-4) continue
+      const tube = new THREE.CylinderGeometry(0.01, 0.01, length, 5, 1, true)
+      turn.setFromUnitVectors(up, b.clone().sub(a).normalize())
+      place.compose(a.clone().add(b).multiplyScalar(0.5), turn, one)
+      parts.push(tube.applyMatrix4(place))
+    }
+    const merged = mergeGeometries(parts)
+    parts.forEach((part) => part.dispose())
+    return merged
+  }, [mark, ropes])
+  useEffect(() => () => ropeTubes?.dispose(), [ropeTubes])
+  const sailMarks = useMemo(
+    () =>
+      mark
+        ? [0, 1].map((j) => {
+            const geo = sail.clone(),
+              uv = geo.attributes.uv,
+              p = geo.attributes.position
+            const width =
+                (0.61 * mark.image.width) /
+                mark.image.height /
+                (j ? 0.672 : 0.84),
+              height = 0.61 / (j ? 0.75 : 1)
+            for (let i = 0; i < uv.count; i++) {
+              uv.setXY(
+                i,
+                ((uv.getX(i) - 0.5) * 1.75) / width + 0.5,
+                ((uv.getY(i) - 0.5) * 1.25) / height + 0.5,
+              )
+              p.setZ(i, p.getZ(i) + 0.001)
+            }
+            return geo
+          })
+        : [],
+    [sail, mark],
+  )
   useEffect(
     () => () => {
       hull.dispose()
       sail.dispose()
       ropes.dispose()
+      sailMarks.forEach((geo) => geo.dispose())
     },
-    [hull, sail, ropes],
+    [hull, sail, ropes, sailMarks],
   )
   return (
     <group>
       <mesh geometry={hull} castShadow>
-        <meshStandardMaterial color="#64513d" map={wood} roughness={0.85} />
+        <meshStandardMaterial
+          color="#ac9170"
+          map={wood}
+          normalMap={woodNormal}
+          normalScale={[0.16, 0.16]}
+          roughnessMap={woodRoughness}
+          roughness={0.94}
+          onBeforeCompile={shadeHull}
+        />
       </mesh>
       <Timber
         position={[0, 0.53, -0.1]}
@@ -1025,6 +2391,25 @@ function PirateShip() {
             scale={[0.07, 0.09, 2.7]}
             color="#ad956e"
           />
+          <Timber
+            position={[side * 0.61, 0.3, -0.4]}
+            scale={[0.025, 0.05, 2.5]}
+            color="#d0b480"
+          />
+          {[-1.1, -0.55, 0, 0.55].map((z) => (
+            <mesh
+              key={`port${z}`}
+              position={[side * 0.645, 0.39, z]}
+              rotation={[0, Math.PI / 2, 0]}
+            >
+              <circleGeometry args={[0.065, 12]} />
+              <meshStandardMaterial
+                color="#242c2b"
+                roughness={0.84}
+                side={THREE.DoubleSide}
+              />
+            </mesh>
+          ))}
           {[-1.4, -0.75, -0.1, 0.55, 1.1].map((z) => (
             <Timber
               key={z}
@@ -1042,24 +2427,46 @@ function PirateShip() {
             <meshStandardMaterial color="#6b563d" map={wood} />
           </mesh>
           {[1.65, 2.95].map((y, j) => (
-            <group key={y}>
+            <group key={y} position={[0, y, z]}>
               <Timber
-                position={[0, y + 0.63, z]}
-                scale={[j === 0 ? 2 : 1.65, 0.06, 0.06]}
+                position={[0, 0.63, 0]}
+                scale={[(j === 0 ? 2 : 1.65) * (mark ? 0.84 : 1), 0.06, 0.06]}
                 color="#5f4b36"
               />
               <mesh
                 geometry={sail}
-                position={[0, y, z + 0.07]}
-                scale={j === 0 ? [1, 1, 1] : [0.8, 0.75, 1]}
+                position={[0, 0, 0.07]}
+                scale={
+                  j === 0
+                    ? [mark ? 0.84 : 1, 1, 1]
+                    : [mark ? 0.672 : 0.8, 0.75, 1]
+                }
                 castShadow
               >
                 <meshStandardMaterial
                   color={i ? '#e1dfc9' : '#d5d1b7'}
                   roughness={1}
                   side={THREE.DoubleSide}
+                  onBeforeCompile={shadeSail}
+                  map={grain}
                 />
               </mesh>
+              {mark && (
+                <mesh
+                  geometry={sailMarks[j]}
+                  position={[0, 0, 0.07]}
+                  scale={j === 0 ? [0.84, 1, 1] : [0.672, 0.75, 1]}
+                >
+                  <meshBasicMaterial
+                    map={mark}
+                    transparent
+                    toneMapped={false}
+                    depthWrite={false}
+                    side={THREE.DoubleSide}
+                    onBeforeCompile={flutter}
+                  />
+                </mesh>
+              )}
             </group>
           ))}
           <mesh position={[0.24, 3.75, z]} rotation={[0, -0.15, -0.08]}>
@@ -1074,17 +2481,74 @@ function PirateShip() {
             <circleGeometry args={[0.048, 12]} />
             <meshBasicMaterial color="#dcdcca" side={THREE.DoubleSide} />
           </mesh>
+          {[-1, 1].map((s) => (
+            <Timber
+              key={s}
+              position={[0.25, 3.69, z + 0.01]}
+              rotation={[0, 0, s * 0.55]}
+              scale={[0.14, 0.018, 0.012]}
+              color="#dcdcca"
+            />
+          ))}
         </group>
       ))}
-      <lineSegments geometry={ropes}>
-        <lineBasicMaterial color="#5e655f" transparent opacity={0.72} />
-      </lineSegments>
+      {ropeTubes ? (
+        <mesh geometry={ropeTubes}>
+          <meshStandardMaterial color="#6e604a" roughness={0.9} />
+        </mesh>
+      ) : (
+        <lineSegments geometry={ropes}>
+          <lineBasicMaterial color="#5e655f" transparent opacity={0.72} />
+        </lineSegments>
+      )}
+      <ShipWake strength={wake} />
+      {mark && <ShipDeck />}
       <Timber
         position={[0, 0.7, 1.99]}
         rotation={[0.12, 0, 0]}
         scale={[0.07, 0.07, 1.3]}
         color="#826c4e"
       />
+      {mark &&
+        [-1, 1].flatMap((side) =>
+          [-0.8, 0, 0.8].map((z) => (
+            <group key={`${side}${z}`} position={[side * 0.65, 0.63, z]}>
+              <Timber
+                position={[0, 0.025, 0]}
+                scale={[0.22, 0.065, 0.23]}
+                color="#6c5940"
+              />
+              <mesh
+                position={[side * 0.03, 0.12, 0]}
+                rotation={[0, 0, Math.PI / 2]}
+              >
+                <cylinderGeometry args={[0.055, 0.07, 0.32, 16]} />
+                <meshStandardMaterial
+                  color="#41443e"
+                  metalness={0.65}
+                  roughness={0.58}
+                />
+              </mesh>
+              <mesh
+                position={[side * 0.191, 0.12, 0]}
+                rotation={[0, (side * Math.PI) / 2, 0]}
+              >
+                <circleGeometry args={[0.039, 16]} />
+                <meshBasicMaterial color="#171e1d" side={THREE.DoubleSide} />
+              </mesh>
+              {[-0.09, 0.09].map((w) => (
+                <mesh
+                  key={w}
+                  position={[0, 0.015, w]}
+                  rotation={[Math.PI / 2, 0, 0]}
+                >
+                  <cylinderGeometry args={[0.06, 0.06, 0.035, 12]} />
+                  <meshStandardMaterial color="#514937" roughness={0.9} />
+                </mesh>
+              ))}
+            </group>
+          )),
+        )}
     </group>
   )
 }
@@ -1141,6 +2605,13 @@ function AmbientShips() {
 }
 
 function ProviderShip({ text }) {
+  const mark = useLoader(
+    THREE.TextureLoader,
+    './logos/tanstack-emblem-charcoal-256.png',
+  )
+  useMemo(() => {
+    mark.colorSpace = THREE.SRGBColorSpace
+  }, [mark])
   const ship = useRef()
   const elapsed = useRef(0)
   const reduced = useMemo(
@@ -1166,11 +2637,11 @@ function ProviderShip({ text }) {
   useEffect(() => () => lettering.dispose(), [lettering])
   useFrame((_, delta) => {
     elapsed.current += Math.min(delta, 0.1)
-    const t = Math.max(0, elapsed.current - 0.5)
+    const t = Math.max(0, elapsed.current - 0.25)
     const x =
-      t < 2.8
-        ? THREE.MathUtils.lerp(25, 65, 1 - Math.pow(1 - t / 2.8, 3))
-        : 65 + Math.min((t - 2.8) / 22, 1) * 40
+      t < 1.4
+        ? THREE.MathUtils.lerp(25, 65, 1 - Math.pow(1 - t / 1.4, 3))
+        : 65 + Math.min((t - 1.4) / 11, 1) * 40
     ship.current.position.set(reduced ? 65 : x, MAP_Y + 0.15, 8)
     ship.current.rotation.set(
       0,
@@ -1180,7 +2651,7 @@ function ProviderShip({ text }) {
   })
   return (
     <group ref={ship} position={[25, MAP_Y + 0.15, 8]} scale={4.2}>
-      <PirateShip />
+      <PirateShip mark={mark} wake={0.9} />
       <mesh position={[-0.87, 0.46, -0.08]} rotation={[0, -Math.PI / 2, 0]}>
         <planeGeometry args={[3.3, 0.58]} />
         <meshBasicMaterial map={lettering} />
@@ -1217,8 +2688,8 @@ function HarborGate({ raised, approval }) {
     if (leaf.current)
       leaf.current.rotation.x = THREE.MathUtils.damp(
         leaf.current.rotation.x,
-        (approval ? approval.current.waiting : raised) ? -Math.PI / 2 : 0,
-        3,
+        (approval ? approval.current.gateRaised : raised) ? -Math.PI / 2 : 0,
+        6,
         dt,
       )
   })
@@ -1230,6 +2701,7 @@ function HarborGate({ raised, approval }) {
             <cylinderGeometry args={[0.8, 1.05, 0.8, 12]} />
             <meshStandardMaterial color="#9c9279" map={grain} />
           </mesh>
+          <FoamRing position={[0, 0.065, 0]} radius={1.0} width={0.38} seed={s * 5} />
           <Timber position={[0, 0.75, 0]} scale={[2, 0.2, 1.3]} />
           {[-0.48, 0.48].map((z) => (
             <Timber
@@ -1329,7 +2801,7 @@ function McpIsland({
       const t =
         !animate || reduced
           ? 1
-          : THREE.MathUtils.smoothstep(elapsed.current, delay, delay + 1.8)
+          : THREE.MathUtils.smoothstep(elapsed.current, delay, delay + 0.9)
       ref.current.visible = t > 0
       ref.current.position.y = MAP_Y - (1 - t) * 5
       reveal.current[slot] = THREE.MathUtils.smoothstep(t, 0.85, 1)
@@ -1338,7 +2810,7 @@ function McpIsland({
       ref.current.position.y = THREE.MathUtils.damp(
         ref.current.position.y,
         MAP_Y,
-        1.25,
+        2.5,
         dt,
       )
   })
@@ -1381,10 +2853,20 @@ function FerryTrip({
   pauseAt,
   cargo,
   overviewBounds,
-  legs,
+  legs: flow,
+  legIndex = 0,
   work,
   approval,
 }) {
+  // One slide sails one leg of the flow. The earlier legs count as done.
+  const legs = useMemo(() => flow?.slice(0, legIndex + 1), [flow, legIndex])
+  const legOffset = useMemo(
+    () =>
+      (legs || [])
+        .slice(0, -1)
+        .reduce((sum, stage) => sum + 2.4 + (stage.holdAfter ?? 0.3), 0),
+    [legs],
+  )
   const ref = useRef(),
     cargoLabel = useRef(),
     tow = useRef([]),
@@ -1406,7 +2888,7 @@ function FerryTrip({
     () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
     [],
   )
-  const [leg, setLeg] = useState(() => (legs && reduced ? legs.length - 1 : 0))
+  const [leg, setLeg] = useState(() => (legs ? legs.length - 1 : 0))
   const activeCurve = legs?.[leg].curve || curve
   const activeReverse = legs?.[leg].reverse ?? reverse
   const activeCargo = legs?.[leg].cargo || cargo
@@ -1508,10 +2990,16 @@ function FerryTrip({
   useEffect(() => () => leader.dispose(), [leader])
   useFrame(({ clock, camera, size }, dt) => {
     const motion = useTalk.getState().cameraMotion
-    if (!legs || !motion || motion.done) elapsed.current += Math.min(dt, 0.05)
+    // The next leg keeps the camera still, so the boat leaves at once.
+    const still =
+      motion?.to &&
+      motion.from.distanceToSquared(motion.to) < 1e-6 &&
+      motion.fromLook.distanceToSquared(motion.toLook) < 1e-6
+    if (!legs || !motion || motion.done || still)
+      elapsed.current += Math.min(dt, 0.05)
     const progress = loop
-      ? (elapsed.current * 0.12 + start) % 1
-      : THREE.MathUtils.clamp((elapsed.current - delay) / 4.8, 0, 1)
+      ? (elapsed.current * 0.24 + start) % 1
+      : THREE.MathUtils.clamp((elapsed.current - delay) / 2.4, 0, 1)
     let t = loop
       ? progress
       : THREE.MathUtils.lerp(
@@ -1523,25 +3011,37 @@ function FerryTrip({
       backwards = reverse,
       phaseIndex = leg
     if (legs) {
-      const time = reduced ? Infinity : Math.max(0, elapsed.current - 0.5)
+      const time = reduced
+        ? Infinity
+        : legOffset + Math.max(0, elapsed.current - 0.25)
       let nextLeg = 0,
         legStart = 0
       while (
         nextLeg < legs.length - 1 &&
-        time >= legStart + 4.8 + (legs[nextLeg].holdAfter ?? 0.6)
+        time >= legStart + 2.4 + (legs[nextLeg].holdAfter ?? 0.3)
       ) {
-        legStart += 4.8 + (legs[nextLeg].holdAfter ?? 0.6)
+        legStart += 2.4 + (legs[nextLeg].holdAfter ?? 0.3)
         nextLeg++
       }
       if (nextLeg !== leg) setLeg(nextLeg)
       phaseIndex = nextLeg
       path = legs[nextLeg].curve
       backwards = legs[nextLeg].reverse
-      t = THREE.MathUtils.smoothstep(time - legStart, 0, 4.8)
+      t = THREE.MathUtils.smoothstep(time - legStart, 0, 2.4)
       if (approval) {
-        const atBrowser = legs[nextLeg].approvalWait && time - legStart >= 4.8
-        const waiting = Boolean(atBrowser && time - legStart < 7.8)
-        approval.current = { waiting, approved: Boolean(atBrowser && !waiting) }
+        // The boat waits at Browser until the next slide approves the call.
+        // Then its APPROVED cargo label says the rest.
+        const waiting = Boolean(
+          legs[nextLeg].approvalWait && time - legStart >= 2.4,
+        )
+        const returnPoint = path.getPoint(1 - t)
+        const gateLocalZ =
+          (returnPoint.x - 5) * Math.sin(0.65) + returnPoint.z * Math.cos(0.65)
+        // Clear the full bridge sweep by .10 with the whole boat inside radius 1.35.
+        const clearedGate = gateLocalZ + 1.35 < -1.23
+        const gateRaised =
+          (nextLeg === 2 && clearedGate) || Boolean(legs[nextLeg].approvalWait)
+        approval.current = { waiting, gateRaised }
       }
       if (work) {
         let cursor = 0
@@ -1550,26 +3050,26 @@ function FerryTrip({
             work.current = {
               site: stage.work,
               progress: THREE.MathUtils.clamp(
-                (time - cursor - 4.8) / (stage.holdAfter ?? 0.6),
+                (time - cursor - 2.4) / (stage.holdAfter ?? 0.3),
                 0,
                 1,
               ),
             }
-          cursor += 4.8 + (stage.holdAfter ?? 0.6)
+          cursor += 2.4 + (stage.holdAfter ?? 0.3)
         }
       }
     }
     if (pauseAt !== undefined) {
       const time = elapsed.current
       t =
-        time < 2
-          ? pauseAt * THREE.MathUtils.smoothstep(time, 0, 2)
-          : time < 4
+        time < 1
+          ? pauseAt * THREE.MathUtils.smoothstep(time, 0, 1)
+          : time < 2
             ? pauseAt
             : THREE.MathUtils.lerp(
                 pauseAt,
                 1,
-                THREE.MathUtils.smoothstep(time, 4, 8),
+                THREE.MathUtils.smoothstep(time, 2, 4),
               )
     }
     const p = path.getPoint(backwards ? 1 - t : t),
@@ -1822,7 +3322,7 @@ function FerryTrip({
         ))}
       {activeCargo && (
         <>
-          <line geometry={leader}>
+          <line geometry={leader} ref={overlay}>
             <lineBasicMaterial
               color="#f5edcc"
               transparent
@@ -1866,7 +3366,7 @@ function SceneCaption({ secondary = false }) {
         'mcp-punch',
         'mcp-multiple-punch',
         'middleware-lifecycle-overview',
-      ].includes(slide.id)
+      ].includes(slide.worldId || slide.id)
     )
       return null
     if (slide.codeWall) {
@@ -1924,7 +3424,7 @@ function SceneCaption({ secondary = false }) {
         state.fromX = state.x
         state.fromY = state.y
         state.elapsed = 0
-        state.duration = 0.45
+        state.duration = 0.225
       }
       return
     }
@@ -1948,7 +3448,7 @@ function SceneCaption({ secondary = false }) {
     const dt = Math.min(delta, 0.1)
     if (state.phase === 'exit') {
       state.elapsed += dt
-      const t = 1 - Math.pow(1 - Math.min(1, state.elapsed / 0.4), 3)
+      const t = 1 - Math.pow(1 - Math.min(1, state.elapsed / 0.2), 3)
       state.x = THREE.MathUtils.lerp(
         state.fromX,
         state.side === 'left' ? -1.8 : 1.8,
@@ -1971,8 +3471,8 @@ function SceneCaption({ secondary = false }) {
         state.fromY = state.y
         state.elapsed = 0
         state.duration = Math.max(
-          0.3,
-          (motion?.total || 2.6) - (motion?.elapsed || 0),
+          0.15,
+          (motion?.total || 1.3) - (motion?.elapsed || 0),
         )
       }
     } else if (state.phase === 'enter') {
@@ -1987,11 +3487,14 @@ function SceneCaption({ secondary = false }) {
       if (t === 1) state.phase = 'idle'
     }
     offset.set(state.x, state.y, 0).applyMatrix4(camera.projectionMatrixInverse)
-    offset.multiplyScalar(-20 / offset.z)
+    offset.multiplyScalar(-16 / offset.z)
     const viewHeight =
-      2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * 20
+      2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * 16
+    const widthScale = (viewHeight * camera.aspect * 0.5 * 0.92) / 1.78
     ref.current.scale.setScalar(
-      (viewHeight * camera.aspect * 0.5 * 0.92) / 1.78,
+      panel?.content.halfPanel
+        ? Math.min(widthScale, (viewHeight * 0.92) / 2)
+        : widthScale,
     )
     ref.current.position
       .copy(offset)
@@ -2009,6 +3512,91 @@ function SceneCaption({ secondary = false }) {
           position={[0, 0, 0]}
         />
       )}
+    </group>
+  )
+}
+
+// Real ChatMiddleware hooks in run order (not the complete list).
+const lifecycleHooks = [
+  'onConfig',
+  'onStart',
+  'onChunk',
+  'onBeforeToolCall',
+  'onAfterToolCall',
+  'onFinish',
+]
+
+// A parchment notice on the harbor master's board, pinned with brass tacks.
+function NoticePaper() {
+  const map = useMemo(() => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 1024
+    canvas.height = 766
+    const ctx = canvas.getContext('2d')
+    const random = seeded(2.7)
+    ctx.fillStyle = '#efe3c3'
+    ctx.fillRect(0, 0, 1024, 766)
+    const vignette = ctx.createRadialGradient(512, 383, 140, 512, 383, 680)
+    vignette.addColorStop(0, 'rgba(150,110,60,0)')
+    vignette.addColorStop(1, 'rgba(118,78,34,.38)')
+    ctx.fillStyle = vignette
+    ctx.fillRect(0, 0, 1024, 766)
+    for (let i = 0; i < 16000; i++) {
+      ctx.fillStyle = `rgba(99,69,34,${random() * 0.07})`
+      ctx.fillRect(
+        random() * 1024,
+        random() * 766,
+        random() * 3 + 0.5,
+        random() * 1.2 + 0.3,
+      )
+    }
+    for (const [x, y, radius] of [
+      [130, 610, 150],
+      [900, 130, 170],
+      [760, 660, 120],
+    ]) {
+      const stain = ctx.createRadialGradient(x, y, 8, x, y, radius)
+      stain.addColorStop(0, 'rgba(128,88,39,.14)')
+      stain.addColorStop(1, 'rgba(128,88,39,0)')
+      ctx.fillStyle = stain
+      ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2)
+    }
+    ctx.strokeStyle = 'rgba(110,84,50,.55)'
+    ctx.lineWidth = 3
+    ctx.strokeRect(28, 28, 968, 710)
+    ctx.lineWidth = 1.5
+    ctx.strokeRect(40, 40, 944, 686)
+    const texture = new THREE.CanvasTexture(canvas)
+    texture.colorSpace = THREE.SRGBColorSpace
+    texture.anisotropy = 8
+    return texture
+  }, [])
+  useEffect(() => () => map.dispose(), [map])
+  return (
+    <group position={[0, 3.65, 0.24]}>
+      <mesh receiveShadow>
+        <boxGeometry args={[9.9, 7.4, 0.05]} />
+        <meshStandardMaterial map={map} roughness={0.95} />
+      </mesh>
+      {[
+        [-4.72, 3.53],
+        [4.72, 3.53],
+        [-4.72, -3.53],
+        [4.72, -3.53],
+      ].map(([x, y]) => (
+        <mesh
+          key={`${x}${y}`}
+          position={[x, y, 0.035]}
+          rotation={[Math.PI / 2, 0, 0]}
+        >
+          <cylinderGeometry args={[0.08, 0.08, 0.03, 12]} />
+          <meshStandardMaterial
+            color="#b8954f"
+            metalness={0.75}
+            roughness={0.35}
+          />
+        </mesh>
+      ))}
     </group>
   )
 }
@@ -2106,11 +3694,14 @@ export function MapWorld() {
     if (!lifecycleOverview) return
     const motion = useTalk.getState().cameraMotion
     if (!motion || motion.done) lifecycleElapsed.current += Math.min(dt, 0.05)
-    const phase = Math.min(4, Math.floor(lifecycleElapsed.current / 2.4))
+    const phase = Math.min(
+      lifecycleHooks.length - 1,
+      Math.floor(lifecycleElapsed.current / 1.2),
+    )
     lifecycleLights.current.forEach((light, index) => {
       if (!light) return
       light.material.emissiveIntensity =
-        reducedLifecycle || index === phase ? 1.6 : 0
+        reducedLifecycle || index === phase ? 4.5 : 0
       light.material.color.set(
         reducedLifecycle || index === phase ? '#ffe8ab' : '#66553d',
       )
@@ -2140,17 +3731,14 @@ export function MapWorld() {
       'client-tool-flow',
       'tool-approvals-overview',
     ].includes(id)
-  const approval = useRef({ waiting: false, approved: false }),
-    approvalWaiting = useRef(),
-    approvalConfirmed = useRef()
+  const approval = useRef({ waiting: false, gateRaised: false }),
+    approvalWaiting = useRef()
   useEffect(() => {
-    approval.current = { waiting: false, approved: false }
+    approval.current = { waiting: false, gateRaised: false }
   }, [id])
   useFrame(() => {
     if (approvalWaiting.current)
       approvalWaiting.current.visible = approval.current.waiting
-    if (approvalConfirmed.current)
-      approvalConfirmed.current.visible = approval.current.approved
   })
   useEffect(() => {
     toolWork.current = { site: null, progress: 0 }
@@ -2162,13 +3750,13 @@ export function MapWorld() {
         reverse: true,
         cargo: 'TOOL CALL',
         work: 'server',
-        holdAfter: 3.2,
+        holdAfter: 1.6,
       },
       {
         curve: routes.sp,
         reverse: false,
         cargo: 'TOOL RESULT',
-        holdAfter: 1.2,
+        holdAfter: 0.6,
       },
       { curve: routes.sp, reverse: true, cargo: 'FINAL RESPONSE' },
       { curve: routes.bs, reverse: true, cargo: 'FINAL RESPONSE' },
@@ -2183,14 +3771,14 @@ export function MapWorld() {
         reverse: true,
         cargo: 'TOOL CALL',
         work: 'client',
-        holdAfter: 3.2,
+        holdAfter: 1.6,
       },
       { curve: routes.bs, reverse: false, cargo: 'TOOL RESULT' },
       {
         curve: routes.sp,
         reverse: false,
         cargo: 'TOOL RESULT',
-        holdAfter: 1.2,
+        holdAfter: 0.6,
       },
       { curve: routes.sp, reverse: true, cargo: 'FINAL RESPONSE' },
       { curve: routes.bs, reverse: true, cargo: 'FINAL RESPONSE' },
@@ -2207,7 +3795,7 @@ export function MapWorld() {
         reverse: true,
         cargo: 'APPROVAL REQUEST',
         approvalWait: true,
-        holdAfter: 4.5,
+        holdAfter: 2.25,
       },
       {
         curve: routes.bs,
@@ -2216,7 +3804,7 @@ export function MapWorld() {
         tow: ['PAYLOAD', 'APPROVAL'],
         unloadAtEnd: true,
         work: 'server',
-        holdAfter: 3.2,
+        holdAfter: 1.6,
       },
       { curve: routes.sp, reverse: false, cargo: 'TOOL RESULT' },
     ],
@@ -2265,15 +3853,20 @@ export function MapWorld() {
       start: step >= 1 ? 0.32 : 0.08,
       end: step < 2 ? 0.32 : 1,
       waiting: step === 1,
-      delay: step === 2 ? 1.2 : 0,
+      delay: step === 2 ? 0.6 : 0,
     }
   const traffic =
     slide.leg !== undefined ||
     ['server-tool-punch', 'client-tool-punch', 'interrupt-punch'].includes(id)
   return (
     <group visible={inMap}>
-      <Ocean mcp={later} mcpReveal={mcpOverview ? mcpReveal : undefined} />
+      {/* Stand-ins for the two cabin lamps: equal light counts in both
+          worlds let the precompiled shaders work everywhere. */}
+      <pointLight ref={allLayers} intensity={0} />
+      <pointLight ref={allLayers} intensity={0} />
+      <Ocean />
       <AmbientShips />
+      <Gulls />
       {['protocols', 'llm-providers', 'custom-servers'].includes(slide.id) && (
         <ProviderShip key={slide.id} text={slide.title} />
       )}
@@ -2318,7 +3911,7 @@ export function MapWorld() {
           <McpIsland
             key={id + 'docs'}
             animate={id === 'mcp-punch'}
-            delay={3.2}
+            delay={1.6}
             label="MCP: docs"
             labeled={labels}
             reveal={mcpReveal}
@@ -2329,7 +3922,7 @@ export function MapWorld() {
               <McpIsland
                 key={id + 'reference'}
                 animate
-                delay={3.2}
+                delay={1.6}
                 position={[-10, -18]}
                 label="MCP: reference"
                 labeled={labels}
@@ -2340,7 +3933,7 @@ export function MapWorld() {
               <McpIsland
                 key={id + 'catalog'}
                 animate
-                delay={4.6}
+                delay={2.3}
                 position={[10, -18]}
                 label="MCP: catalog"
                 labeled={labels}
@@ -2414,8 +4007,10 @@ export function MapWorld() {
             scale={[10, 2.5, 1]}
           />
           <FerryTrip
+            key={step}
             curve={routes.bs}
             legs={fullLoop}
+            legIndex={step}
             overviewBounds={overviewBounds}
           />
         </>
@@ -2438,59 +4033,46 @@ export function MapWorld() {
       {lifecycleOverview && (
         <group position={[9, MAP_Y, -8.5]}>
           <group scale={[7.5, 1, 1.4]}>
-            <Dock position={[0, 0.35, 0]} />
+            <Dock position={[0, 0.35, 0]} foam={false} />
           </group>
+          {/* The board stands right behind the labels, so even the last
+              hook projects onto the parchment and not onto the deck below. */}
           {[-4.8, 4.8].map((x) => (
-            <Timber key={x} position={[x, 3, -0.2]} scale={[0.18, 6.4, 0.18]} />
+            <Timber key={x} position={[x, 3.55, 0.1]} scale={[0.18, 7.5, 0.18]} />
           ))}
           <Timber
-            position={[0, 3.1, -0.3]}
-            scale={[10.4, 6.8, 0.2]}
+            position={[0, 3.65, 0.1]}
+            scale={[10.4, 7.9, 0.2]}
             color="#745635"
           />
-          <Timber
-            position={[0, 3.1, -0.16]}
-            scale={[10, 6.4, 0.08]}
-            color="#d8c5a0"
-          />
-          <Timber
-            position={[0, 0.8, 1.05]}
-            scale={[3.1, 0.18, 1.25]}
-            color="#84643f"
-          />
-          {[-0.65, 0.65].map((x) => (
-            <Timber
-              key={x}
-              position={[x, 0.96, 1.1]}
-              scale={[1.25, 0.09, 1]}
-              rotation={[0, 0, x < 0 ? 0.06 : -0.06]}
-              color="#e4d6b5"
-            />
-          ))}
+          <NoticePaper />
           <Label
             text="Harbor master"
-            position={[0, 7.2, 0]}
+            position={[0, 8.25, 0]}
             scale={[4.4, 1.1, 1]}
           />
-          {[
-            'RUN START',
-            'MODEL CALL',
-            'TOOL CALL',
-            'STREAM CHUNK',
-            'RUN END',
-          ].map((text, index) => (
-            <group key={text} position={[0, 5 - index * 1.05, 0.1]}>
+          {lifecycleHooks.map((text, index) => (
+            <group key={text} position={[0, 6.6 - index * 1.1, 0.1]}>
+              <mesh position={[-4.45, 0, 0.2]}>
+                <torusGeometry args={[0.2, 0.045, 8, 24]} />
+                <meshStandardMaterial
+                  color="#b8954f"
+                  metalness={0.75}
+                  roughness={0.35}
+                />
+              </mesh>
               <mesh
                 ref={(node) => {
                   lifecycleLights.current[index] = node
                 }}
-                position={[-4.45, 0, 0.15]}
+                position={[-4.45, 0, 0.24]}
               >
-                <sphereGeometry args={[0.14, 12, 8]} />
+                <sphereGeometry args={[0.17, 16, 12]} />
                 <meshStandardMaterial
                   color="#66553d"
                   emissive="#edac52"
                   emissiveIntensity={0}
+                  roughness={0.25}
                 />
               </mesh>
               <Label
@@ -2507,9 +4089,10 @@ export function MapWorld() {
       )}
       {(id === 'server-tool-flow' || id === 'client-tool-flow') && (
         <FerryTrip
-          key={id}
+          key={`${id}-${step}`}
           curve={routes.sp}
           legs={id === 'server-tool-flow' ? serverFlow : clientFlow}
+          legIndex={step}
           work={toolWork}
           overviewBounds={overviewBounds}
         />
@@ -2517,9 +4100,10 @@ export function MapWorld() {
       {id === 'tool-approvals-overview' && (
         <>
           <FerryTrip
-            key={id}
+            key={`${id}-${step}`}
             curve={routes.bs}
             legs={approvalFlow}
+            legIndex={step}
             work={toolWork}
             approval={approval}
             overviewBounds={overviewBounds}
@@ -2532,17 +4116,11 @@ export function MapWorld() {
               scale={[4, 1, 1]}
             />
           </group>
-          <group ref={approvalConfirmed} visible={false}>
-            <Label
-              text="APPROVED"
-              position={[-9, MAP_Y + 10, 8]}
-              scale={[4, 1, 1]}
-            />
-          </group>
         </>
       )}
       {!slide.codeWall &&
         ![
+          'tanstack-tool-definitions',
           'tanstack-approval-definitions',
           'middleware-cache',
           'middleware-telemetry',

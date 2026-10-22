@@ -3,6 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useTalk } from '../store.js'
 import { shackSlides } from './layout.js'
+import { overlay } from './PostFX.jsx'
 
 const ease = (value) => value * value * (3 - 2 * value)
 const progress = (value, start, end) =>
@@ -82,8 +83,8 @@ export function CameraRig() {
       const toShack = shackSlides.has(slide.id)
       const crossing = fromShack !== toShack
       const cloudCut =
-        (sourceId === 'middleware-compaction' && slide.id === 'close') ||
-        (sourceId === 'close' && slide.id === 'middleware-compaction')
+        (sourceId === 'computer-use' && slide.id === 'close') ||
+        (sourceId === 'close' && slide.id === 'computer-use')
       const windowFlyout =
         (sourceId === 'close' && slide.id === 'thank-you') ||
         (sourceId === 'thank-you' && slide.id === 'close')
@@ -100,14 +101,14 @@ export function CameraRig() {
         switched: false,
         done: false,
         total: reducedCut
-          ? 0.4
+          ? 0.2
           : windowFlyout
-            ? 4.8
+            ? 2.4
             : cloudCut
-              ? 2.6
+              ? 1.3
               : crossing
-                ? 6.1
-                : 2.6,
+                ? 3.05
+                : 1.3,
         targetIndex: index,
         targetStep: step,
         from: camera.position.clone(),
@@ -140,6 +141,7 @@ export function CameraRig() {
     const elapsed = transition.elapsed
     if (transition.cloudCut) {
       const phase = elapsed / transition.total
+      let switchedThisFrame = false
       uniforms.fadeOnly.value = transition.reducedCut ? 1 : 0
       if (phase < 0.5) {
         uniforms.coverage.value = THREE.MathUtils.lerp(
@@ -154,15 +156,16 @@ export function CameraRig() {
           projectionShift.current = targetShift
           useTalk.setState({ sceneIndex: index, sceneStep: step })
           transition.switched = true
+          switchedThisFrame = true
           uniforms.coverage.value = 1
         } else {
           uniforms.coverage.value = 1 - ease(progress(phase, 0.58, 1))
         }
       }
-      transition.done = phase >= 1
+      transition.done = phase >= 1 && !switchedThisFrame
     } else if (transition.crossing) {
-      if (elapsed < 2.8) {
-        const t = ease(progress(elapsed, 0, 2.7))
+      if (elapsed < 1.4) {
+        const t = ease(progress(elapsed, 0, 1.35))
         uniforms.fadeOnly.value = transition.initialFade * (1 - t)
         camera.position.lerpVectors(transition.from, transition.approach, t)
         currentLook.current.lerpVectors(
@@ -173,7 +176,7 @@ export function CameraRig() {
         uniforms.coverage.value = THREE.MathUtils.lerp(
           transition.initialCloud,
           1,
-          ease(progress(elapsed, 0.9, 2.5)),
+          ease(progress(elapsed, 0.45, 1.25)),
         )
       } else {
         uniforms.fadeOnly.value = 0
@@ -182,21 +185,21 @@ export function CameraRig() {
           useTalk.setState({ sceneIndex: index, sceneStep: step })
           transition.switched = true
         }
-        const t = ease(progress(elapsed, 2.8, 6.1))
+        const t = ease(progress(elapsed, 1.4, 3.05))
         camera.position.lerpVectors(transition.emerge, transition.to, t)
         currentLook.current.lerpVectors(
           transition.emergeLook,
           transition.toLook,
           t,
         )
-        uniforms.coverage.value = 1 - ease(progress(elapsed, 3.25, 6.1))
+        uniforms.coverage.value = 1 - ease(progress(elapsed, 1.625, 3.05))
       }
-      transition.done = elapsed >= 6.1
+      transition.done = elapsed >= 3.05
     } else {
       const t = ease(
         progress(
           elapsed,
-          transition.fromShift || targetShift ? 0.45 : 0,
+          transition.fromShift || targetShift ? 0.225 : 0,
           transition.total,
         ),
       )
@@ -225,7 +228,15 @@ export function CameraRig() {
   })
 
   return (
-    <mesh ref={cloud} visible={false} renderOrder={10000} frustumCulled={false}>
+    <mesh
+      ref={(node) => {
+        cloud.current = node
+        overlay(node)
+      }}
+      visible={false}
+      renderOrder={10000}
+      frustumCulled={false}
+    >
       <planeGeometry args={[2, 2]} />
       <shaderMaterial
         uniforms={uniforms}
@@ -243,7 +254,8 @@ export function CameraRig() {
       float billow(vec2 p){return noise(p)*.58+noise(p*2.13)*.28+noise(p*4.37)*.14;}
       void main(){
         vec2 p=(uvCloud-.5)*vec2(aspect,1.);
-        float n=billow(p*4.+vec2(time*.065,-time*.025)*(1.-fadeOnly));
+        vec2 drift=vec2(time*.065,-time*.025)*(1.-fadeOnly);
+        float n=billow(p*4.+drift);
         float left=length((p-vec2(-aspect*.78+coverage*aspect*.86,.12))*vec2(.9,1.3));
         float right=length((p-vec2(aspect*.82-coverage*aspect*.83,-.16))*vec2(.9,1.4));
         float top=length((p-vec2(.12,.9-coverage*.95))*vec2(1.2,.9));
@@ -252,8 +264,17 @@ export function CameraRig() {
         float alpha=(1.-smoothstep(edge-.09,edge+.1,distance))*smoothstep(0.,.12,coverage);
         alpha=max(alpha,smoothstep(.78,.98,coverage));
         alpha=mix(alpha,coverage,fadeOnly);
-        vec3 color=mix(vec3(.52,.63,.71),vec3(.84,.9,.94),n*.7+.3);
-        color+=pow(1.-abs(distance-edge),12.)*.03;
+        // Puffy shading: a normal from the billow slope, lit from the upper left.
+        vec2 q=p*4.+drift;
+        float fine=billow(mat2(.8,-.6,.6,.8)*p*8.3-drift*1.6);
+        float gx=billow(q+vec2(.08,0.))-n, gy=billow(q+vec2(0.,.08))-n;
+        vec3 normal=normalize(vec3(-gx*5.,-gy*5.,1.));
+        float light=clamp(dot(normal,normalize(vec3(-.45,.55,.7))),0.,1.);
+        float puff=n*.75+fine*.25;
+        vec3 shade=vec3(.52,.62,.74), lit=vec3(1.,.985,.96);
+        vec3 color=mix(shade,lit,smoothstep(.15,.95,light*.6+puff*.6));
+        float rim=pow(1.-clamp(abs(distance-edge)*2.,0.,1.),10.);
+        color+=vec3(1.,.94,.84)*rim*.18*(1.-smoothstep(.55,.85,coverage));
         gl_FragColor=vec4(color,alpha);
         #include <colorspace_fragment>
       }

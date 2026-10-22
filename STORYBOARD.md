@@ -2,28 +2,33 @@
 
 ## Current live sequence
 
-The current deck has 53 slides and 53 states. Six middleware slides follow the MCP section. The cabin closing scene remains slide 52. Slide 53 adds "Thank you" and "Alem Tuzlak" over the sunset. All 52 earlier slide objects keep their exact content.
+The visual-polish preview uses port 5176. Camera paths and routes remain unchanged; transitions and story sequences now run at twice their former pace. The island art uses layered coasts, green foliage and weathered landmarks. Tabletop islands have small landmarks, palms and piers. Real TanStack marks appear on coins and bow-facing sails. A beach grounds the cabin palms. Tall clouds fit short windows and stay above the ocean. Transport examples share their font sizes without diff highlights. Anthropic and xAI examples highlight their provider changes. HANDOFF records the standalone checkpoint and branch.
 
-The 51-52 boundary uses cloud cover with a hidden camera cut in both directions. It reveals the settled cabin without a flythrough. Reduced motion uses a stationary fade. The original opening transitions remain unchanged.
+The current deck has 54 slides and 54 states. Slide 33 shows shared definitions in `tools.ts`. Slides 34 and 35 import the definitions and attach each handler on its host. The later approval definition adds only the server clock approval flag. Six middleware slides follow the MCP section. The cabin closing scene is slide 53. Slide 54 says "Thank you" and "Alem Tuzlak" over the sunset.
+
+The 52-53 boundary uses cloud cover with a hidden camera cut in both directions. It reveals the settled cabin without a flythrough. Reduced motion uses a stationary fade. The original opening transitions remain unchanged.
 
 | Slide | Scene                                                                 | Form                                                  |
 | ----- | --------------------------------------------------------------------- | ----------------------------------------------------- |
-| 40    | What if we added MCP? One island rises after the title.               | Full map with both workshops                          |
-| 41    | MCP with DIY                                                          | Complete Server program on one centered cloud         |
-| 42    | MCP with TanStack AI                                                  | Server program with MCP additions highlighted         |
-| 43    | What if we had multiple MCP servers? Reference and catalog join docs. | Full map with three MCP islands                       |
-| 44    | Multiple MCP servers with DIY                                         | Complete Server program on one centered cloud         |
-| 45    | An MCP pool with TanStack AI                                          | Server program with pool changes highlighted          |
-| 46    | What if we need middleware?                                           | Harbor master and five lifecycle hook cues            |
-| 47    | What if we need caching?                                              | Short centered code cloud                             |
-| 48    | What if we need telemetry?                                            | Short centered code cloud                             |
-| 49    | What if we need persistence?                                          | Short centered code cloud                             |
-| 50    | What if we need memory?                                               | Short centered code cloud                             |
-| 51    | What if the context gets too large?                                   | Short centered code cloud                             |
-| 52    | Closing scene                                                         | Unchanged ending                                      |
-| 53    | Thank you. Alem Tuzlak.                                               | Camera travels through the cabin window to the sunset |
+| 33    | Shared tools.ts definitions                                           | One centered code cloud                               |
+| 34    | Client and server tool implementations                                | Two code clouds                                       |
+| 35    | The tool integration stays small                                      | Same code with tool additions highlighted             |
+| 41    | What if we added MCP? One island rises after the title.               | Full map with both workshops                          |
+| 42    | MCP with DIY                                                          | Complete Server program on one centered cloud         |
+| 43    | MCP with TanStack AI                                                  | Server program with MCP additions highlighted         |
+| 44    | What if we had multiple MCP servers? Reference and catalog join docs. | Full map with three MCP islands                       |
+| 45    | Multiple MCP servers with DIY                                         | Complete Server program on one centered cloud         |
+| 46    | An MCP pool with TanStack AI                                          | Server program with pool changes highlighted          |
+| 47    | What if we need middleware?                                           | Harbor master and five lifecycle hook cues            |
+| 48    | What if we need caching?                                              | Short centered code cloud                             |
+| 49    | What if we need telemetry?                                            | Short centered code cloud                             |
+| 50    | What if we need persistence?                                          | Short centered code cloud                             |
+| 51    | What if we need memory?                                               | Short centered code cloud                             |
+| 52    | What if the context gets too large?                                   | Short centered code cloud                             |
+| 53    | Closing scene                                                         | Unchanged ending                                      |
+| 54    | Thank you. Alem Tuzlak.                                               | Camera travels through the cabin window to the sunset |
 
-The final camera path clears the center of the window and stops over the ocean. The title appears above the name after the camera exits. The 4.8-second path reverses safely. Reduced motion uses a stationary fade. The earlier 51-52 cloud cut remains unchanged.
+The final camera path clears the center of the window and stops over the ocean. The title appears above the name after the camera exits. The 2.4-second path reverses safely. Reduced motion uses a stationary fade. The earlier cloud cut remains unchanged.
 
 All MCP routes leave the north coast of Server. Browser code is unchanged and is not repeated in this section. The examples keep local approvals. Remote tools are trusted and read-only. They use fixed placeholder HTTP URLs. MCP source review passes 31 focused checks. Both display sizes and both rendering modes pass. The build record is in HANDOFF.
 

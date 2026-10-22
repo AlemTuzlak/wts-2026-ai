@@ -20,6 +20,12 @@ export const colors = {
 
 export const MAP_Y = -50
 
+// Cabin sunset: the sun disc touches the horizon, below every headline; the
+// light that casts shadows into the room comes from higher up for readable
+// floor patches.
+export const sunsetSun = [-0.331, 0.013, -0.944]
+export const shackLight = [-0.36, 0.47, -0.8]
+
 export const islands = {
   browser: [-10, MAP_Y, 7],
   server: [0, MAP_Y, -7],
@@ -34,7 +40,7 @@ export const sheet = {
 
 export const shackCam = {
   title: { position: [0, 1.65, 3.45], lookAt: [0, 1.3, -2.4] },
-  table: { position: [0, 2.45, 0.65], lookAt: [0, 0.84, -1.15] },
+  table: { position: [0, 2.55, -0.2], lookAt: [0, 0.853, -1.15] },
   close: { position: [0.12, 1.48, 2.2], lookAt: [0, 1.2, -2.4] },
   thanks: { position: [0, 1.8, -10], lookAt: [0, 2, -62] },
 }

@@ -3,6 +3,7 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { colors } from './layout.js'
 import { whenFontsReady } from '../catalog/paint.js'
+import { overlay } from './PostFX.jsx'
 
 export function Label({ text, position = [0, 0, 0], scale = [2.6, 0.65, 1] }) {
   const sprite = useRef()
@@ -67,6 +68,8 @@ export function Label({ text, position = [0, 0, 0], scale = [2.6, 0.65, 1] }) {
       texture.dispose()
     }
   }, [text, texture])
+
+  useEffect(() => overlay(sprite.current), [])
 
   return (
     <sprite ref={sprite} position={position} scale={scale}>
