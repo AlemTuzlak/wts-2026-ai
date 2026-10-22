@@ -202,20 +202,20 @@ The conference site page is a client-rendered SPA. `https://wts.sh/sessions/how-
 
 ## 2. Status
 
-| Item | State |
-|---|---|
-| World pick | Locked: Island Ferries inside a treasure-map shack |
-| Theme | Locked: Cream Day inside the map. Terracotta sunset only in the shack window |
-| Camera story | Locked: shack → table map → enter the map → ride the first ferry → return to shack at close |
-| Storyboard | Approved. 18 slides. See `STORYBOARD.md` |
-| Skeleton | Copied from `threejs-presentation/template` |
-| `talk.js` | All 18 slides present with cameras, forms, Enter steps, real APIs |
-| World blockout | Primitives only. Shack + cream sea + 4 islands + boat + drawbridge + buoys |
-| Catalog painter | Cream parchment, terracotta accent, Bricolage + Inter |
-| Local preview | Vite. Last known URL `http://localhost:5173/` |
-| `npm run build` | Passed. `dist/` exists |
-| Blender / GLB | Not started. Only if Alem asks |
-| Stage polish | **Not done.** This is the remaining work |
+| Item            | State                                                                                       |
+| --------------- | ------------------------------------------------------------------------------------------- |
+| World pick      | Locked: Island Ferries inside a treasure-map shack                                          |
+| Theme           | Locked: Cream Day inside the map. Terracotta sunset only in the shack window                |
+| Camera story    | Locked: shack → table map → enter the map → ride the first ferry → return to shack at close |
+| Storyboard      | Approved. 18 slides. See `STORYBOARD.md`                                                    |
+| Skeleton        | Copied from `threejs-presentation/template`                                                 |
+| `talk.js`       | All 18 slides present with cameras, forms, Enter steps, real APIs                           |
+| World blockout  | Primitives only. Shack + cream sea + 4 islands + boat + drawbridge + buoys                  |
+| Catalog painter | Cream parchment, terracotta accent, Bricolage + Inter                                       |
+| Local preview   | Vite. Last known URL `http://localhost:5173/`                                               |
+| `npm run build` | Passed. `dist/` exists                                                                      |
+| Blender / GLB   | Not started. Only if Alem asks                                                              |
+| Stage polish    | **Not done.** This is the remaining work                                                    |
 
 This is a **blockout**, not a finished set. Boxes and cylinders stand in for a shack, islands, and boats. The argument is visible. The craft is not finished.
 
@@ -238,17 +238,17 @@ Alem already picked these. Do not offer a new world, a new palette, or a new sli
 
 ## 4. Paths
 
-| What | Absolute path |
-|---|---|
-| Talk project | `F:\projects\talks\wts-2026-ai` |
-| Storyboard | `F:\projects\talks\wts-2026-ai\STORYBOARD.md` |
-| This handoff | `F:\projects\talks\wts-2026-ai\HANDOFF.md` |
-| API source (TanStack AI worktree) | `C:\Users\AlemTuzlak\.grok\worktrees\tanstack-ai\2026-09-14-e2eece4d` |
-| Three.js talk skill | `C:\Users\AlemTuzlak\.grok\skills\threejs-presentation\` |
-| Catalog / Zurich keys | `C:\Users\AlemTuzlak\.grok\skills\threejs-presentation\references\catalog.md` |
-| Verification | `C:\Users\AlemTuzlak\.grok\skills\threejs-presentation\references\verification.md` |
-| Brand skill | `C:\Users\AlemTuzlak\.agents\skills\tanstack-branding\` |
-| Brand fonts / logos | `C:\Users\AlemTuzlak\.agents\skills\tanstack-branding\assets\` |
+| What                              | Absolute path                                                                      |
+| --------------------------------- | ---------------------------------------------------------------------------------- |
+| Talk project                      | `F:\projects\talks\wts-2026-ai`                                                    |
+| Storyboard                        | `F:\projects\talks\wts-2026-ai\STORYBOARD.md`                                      |
+| This handoff                      | `F:\projects\talks\wts-2026-ai\HANDOFF.md`                                         |
+| API source (TanStack AI worktree) | `C:\Users\AlemTuzlak\.grok\worktrees\tanstack-ai\2026-09-14-e2eece4d`              |
+| Three.js talk skill               | `C:\Users\AlemTuzlak\.grok\skills\threejs-presentation\`                           |
+| Catalog / Zurich keys             | `C:\Users\AlemTuzlak\.grok\skills\threejs-presentation\references\catalog.md`      |
+| Verification                      | `C:\Users\AlemTuzlak\.grok\skills\threejs-presentation\references\verification.md` |
+| Brand skill                       | `C:\Users\AlemTuzlak\.agents\skills\tanstack-branding\`                            |
+| Brand fonts / logos               | `C:\Users\AlemTuzlak\.agents\skills\tanstack-branding\assets\`                     |
 
 The talk is **not** inside the TanStack AI git repo. Do not commit talk files into the library worktree.
 
@@ -273,15 +273,15 @@ Writes `F:\projects\talks\wts-2026-ai\dist`.
 
 ### Keys (Zurich — do not change)
 
-| Key | Action |
-|---|---|
-| Arrow right / down | Next slide |
-| Arrow left / up | Previous slide |
-| Enter | Next step on this slide |
-| Backspace | Previous step |
-| `T` | Start timer. Press again to stop and leave the time on screen |
-| `f` | Fullscreen |
-| Space | Does nothing |
+| Key                | Action                                                        |
+| ------------------ | ------------------------------------------------------------- |
+| Arrow right / down | Next slide                                                    |
+| Arrow left / up    | Previous slide                                                |
+| Enter              | Next step on this slide                                       |
+| Backspace          | Previous step                                                 |
+| `T`                | Start timer. Press again to stop and leave the time on screen |
+| `f`                | Fullscreen                                                    |
+| Space              | Does nothing                                                  |
 
 Deep link: `?slide=first-ferry`  
 Authoring / fallback: `?flat=1` (same painter, no WebGL)
@@ -311,12 +311,12 @@ Blender pass: only if Alem asks. Then load `threejs-presentation/references/blen
 
 TanStack AI sits in **Data & State**. One accent per surface.
 
-| Token | Hex | Use |
-|---|---|---|
-| Cream | `#eeebd4` | Map water, parchment, catalog background |
-| Ink | `#111111` | Titles, code, HUD |
-| Charcoal | `#3e3529` | Islands, secondary text, muted code |
-| Terracotta | `#d3481b` | Ferries, dashed routes, kicker, buoys when lit |
+| Token                   | Hex                   | Use                                                                    |
+| ----------------------- | --------------------- | ---------------------------------------------------------------------- |
+| Cream                   | `#eeebd4`             | Map water, parchment, catalog background                               |
+| Ink                     | `#111111`             | Titles, code, HUD                                                      |
+| Charcoal                | `#3e3529`             | Islands, secondary text, muted code                                    |
+| Terracotta              | `#d3481b`             | Ferries, dashed routes, kicker, buoys when lit                         |
 | Sunset (shack sky only) | `#c45a32` / `#e08a55` | Window sky and sun. Same hue family as terracotta. Not a second accent |
 
 Fonts in `public/fonts/`:
@@ -339,21 +339,21 @@ Copied from `threejs-presentation/template`. Do **not** fork nav, painter core, 
 
 ### Files you edit
 
-| File | Job |
-|---|---|
-| `src/talk.js` | Slide list, timer, theme, code lines, cameras |
-| `src/scene/layout.js` | Colors, island positions, camera waypoints |
-| `src/scene/World.jsx` | Lights + fog + composes Shack and MapWorld |
-| `src/scene/Shack.jsx` | Interior, window, table, mini-map, title board, close logo |
-| `src/scene/MapWorld.jsx` | Sea, islands, dashes, boat, dock, drawbridge, buoys, giant sheet |
-| `src/scene/Label.jsx` | Canvas sprite labels (no drei Text — drei Text suspended the canvas) |
-| `src/scene/Surface.jsx` | Catalog canvas texture. Accepts position / rotation / scale / visible |
-| `src/catalog/paint.js` | Title, statement, code, punch. Loads Bricolage + Inter. Supports `linesSteps` and `highlightSteps` |
-| `src/scene/CameraRig.jsx` | Lerps to `slide.cameras[step]` or `slide.camera` |
-| `src/App.jsx` | Canvas, Suspense around World, sky color from shack vs map |
-| `src/store.js` | Zustand. Reads `?slide=` on init. Do not break this |
-| `src/nav.js` | Zurich keys. Do not change |
-| `src/hud/Hud.jsx` | Counter + timer |
+| File                      | Job                                                                                                |
+| ------------------------- | -------------------------------------------------------------------------------------------------- |
+| `src/talk.js`             | Slide list, timer, theme, code lines, cameras                                                      |
+| `src/scene/layout.js`     | Colors, island positions, camera waypoints                                                         |
+| `src/scene/World.jsx`     | Lights + fog + composes Shack and MapWorld                                                         |
+| `src/scene/Shack.jsx`     | Interior, window, table, mini-map, title board, close logo                                         |
+| `src/scene/MapWorld.jsx`  | Sea, islands, dashes, boat, dock, drawbridge, buoys, giant sheet                                   |
+| `src/scene/Label.jsx`     | Canvas sprite labels (no drei Text — drei Text suspended the canvas)                               |
+| `src/scene/Surface.jsx`   | Catalog canvas texture. Accepts position / rotation / scale / visible                              |
+| `src/catalog/paint.js`    | Title, statement, code, punch. Loads Bricolage + Inter. Supports `linesSteps` and `highlightSteps` |
+| `src/scene/CameraRig.jsx` | Lerps to `slide.cameras[step]` or `slide.camera`                                                   |
+| `src/App.jsx`             | Canvas, Suspense around World, sky color from shack vs map                                         |
+| `src/store.js`            | Zustand. Reads `?slide=` on init. Do not break this                                                |
+| `src/nav.js`              | Zurich keys. Do not change                                                                         |
+| `src/hud/Hud.jsx`         | Counter + timer                                                                                    |
 
 ### Two spaces
 
@@ -399,26 +399,26 @@ Middleware buoys sit on those two paths. Visible on middleware slides and `hops-
 
 ## 10. Slide list (source of truth: `src/talk.js`)
 
-| # | id | form | steps | What the audience must see |
-|---|---|---|---|---|
-| 1 | `title` | title | 1 | Shack, sunset window, title board, table in front |
-| 2 | `the-map` | statement | 1 | Dolly to table. Three mini islands + dashes on parchment |
-| 3 | `three-islands` | punch | 3 | Enter the map. Labels: Browser, then Server, then Provider |
-| 4 | `first-ferry` | punch | 4 | Boat rides B→S, S→P, P→S, S→B. Per-step cameras in `mapCam.ferry` |
-| 5 | `diy-tax` | statement | 1 | Sheet: “Roll-your-own means you own every hop.” |
-| 6 | `tanstack-chat` | code | 2 | Enter: `chat()` then `useChat` |
-| 7 | `server-tool-punch` | punch | 2 | Dock appears on Server. Boat to the dock |
-| 8 | `client-tool-punch` | punch | 2 | Boat returns to Browser, then continues |
-| 9 | `parallel-punch` | punch | 1 | Several boats at once |
-| 10 | `tools-code` | code | 2 | `.server()` then `.client()` |
-| 11 | `interrupt-punch` | punch | 3 | Bridge up, boat waits, bridge down |
-| 12 | `mcp-punch` | punch | 2 | MCP island rises, then a ferry docks |
-| 13 | `middleware-punch` | punch | 2 | Two buoys light, one per Enter |
-| 14 | `interrupt-code` | code | 2 | `needsApproval` then `resolveInterrupt` |
-| 15 | `mcp-code` | code | 1 | `createMCPClient` + `mcp: { clients }` |
-| 16 | `middleware-code` | code | 1 | `middleware: [logger]` |
-| 17 | `hops-stay` | statement | 1 | Sheet: “The hops stay. The glue does not.” |
-| 18 | `close` | title | 1 | Back in the shack. Close line. TanStack landscape logo on the table |
+| #   | id                  | form      | steps | What the audience must see                                          |
+| --- | ------------------- | --------- | ----- | ------------------------------------------------------------------- |
+| 1   | `title`             | title     | 1     | Shack, sunset window, title board, table in front                   |
+| 2   | `the-map`           | statement | 1     | Dolly to table. Three mini islands + dashes on parchment            |
+| 3   | `three-islands`     | punch     | 3     | Enter the map. Labels: Browser, then Server, then Provider          |
+| 4   | `first-ferry`       | punch     | 4     | Boat rides B→S, S→P, P→S, S→B. Per-step cameras in `mapCam.ferry`   |
+| 5   | `diy-tax`           | statement | 1     | Sheet: “Roll-your-own means you own every hop.”                     |
+| 6   | `tanstack-chat`     | code      | 2     | Enter: `chat()` then `useChat`                                      |
+| 7   | `server-tool-punch` | punch     | 2     | Dock appears on Server. Boat to the dock                            |
+| 8   | `client-tool-punch` | punch     | 2     | Boat returns to Browser, then continues                             |
+| 9   | `parallel-punch`    | punch     | 1     | Several boats at once                                               |
+| 10  | `tools-code`        | code      | 2     | `.server()` then `.client()`                                        |
+| 11  | `interrupt-punch`   | punch     | 3     | Bridge up, boat waits, bridge down                                  |
+| 12  | `mcp-punch`         | punch     | 2     | MCP island rises, then a ferry docks                                |
+| 13  | `middleware-punch`  | punch     | 2     | Two buoys light, one per Enter                                      |
+| 14  | `interrupt-code`    | code      | 2     | `needsApproval` then `resolveInterrupt`                             |
+| 15  | `mcp-code`          | code      | 1     | `createMCPClient` + `mcp: { clients }`                              |
+| 16  | `middleware-code`   | code      | 1     | `middleware: [logger]`                                              |
+| 17  | `hops-stay`         | statement | 1     | Sheet: “The hops stay. The glue does not.”                          |
+| 18  | `close`             | title     | 1     | Back in the shack. Close line. TanStack landscape logo on the table |
 
 Code snippets must stay real APIs from the TanStack AI worktree. Do not invent signatures. Ground from:
 

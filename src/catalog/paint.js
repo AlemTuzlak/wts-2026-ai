@@ -11,30 +11,52 @@ const W = 1920
 const H = 1080
 const highlighter = createHighlighter({ languages: [js, ts, jsx, python, php] })
 const codeCache = new Map()
-const mutedCodeColors = Object.fromEntries(Object.entries(githubLightTheme.tokens).map(([name, color]) => {
-  const channels = [1, 3, 5].map((offset, index) => Math.round(parseInt(color.slice(offset, offset + 2), 16) * .72 + [50, 60, 68][index] * .28))
-  return [name, `rgb(${channels.join(',')})`]
-}))
+const mutedCodeColors = Object.fromEntries(
+  Object.entries(githubLightTheme.tokens).map(([name, color]) => {
+    const channels = [1, 3, 5].map((offset, index) =>
+      Math.round(
+        parseInt(color.slice(offset, offset + 2), 16) * 0.72 +
+          [50, 60, 68][index] * 0.28,
+      ),
+    )
+    return [name, `rgb(${channels.join(',')})`]
+  }),
+)
 
 function highlightedLines(lines, language, decorations = []) {
   const source = lines.join('\n')
-  const lang = language === 'php' ? 'php' : language === 'python' ? 'python' : language === 'jsx' ? 'jsx' : language === 'ts' ? 'ts' : 'js'
+  const lang =
+    language === 'php'
+      ? 'php'
+      : language === 'python'
+        ? 'python'
+        : language === 'jsx'
+          ? 'jsx'
+          : language === 'ts'
+            ? 'ts'
+            : 'js'
   const key = `${lang}:${source}:${JSON.stringify(decorations)}`
   if (codeCache.has(key)) return codeCache.get(key)
   const document = parseMarkdown(`~~~${lang}\n${source}\n~~~`)
-  const block = document.children.find(node => node.type === 'code')
+  const block = document.children.find((node) => node.type === 'code')
   const tokens = highlighter.tokenize(block.value, { lang: block.lang }).tokens
   const rows = [[]]
   for (const token of tokens) {
     token.value.split('\n').forEach((value, index) => {
       if (index > 0) rows.push([])
-      if (value) rows[rows.length - 1].push({ value, className: token.className })
+      if (value)
+        rows[rows.length - 1].push({ value, className: token.className })
     })
   }
   if (decorations.length) {
-    renderTokens(tokens, { decorations }).filter(node => node.type === 'element' && node.classNames.includes('th-line')).forEach((node, index) => {
-      rows[index].focused = node.classNames.includes('th-line--focused')
-    })
+    renderTokens(tokens, { decorations })
+      .filter(
+        (node) =>
+          node.type === 'element' && node.classNames.includes('th-line'),
+      )
+      .forEach((node, index) => {
+        rows[index].focused = node.classNames.includes('th-line--focused')
+      })
   }
   codeCache.set(key, rows)
   return rows
@@ -49,9 +71,13 @@ function loadFonts() {
     return
   }
   const faces = [
-    new FontFace('Bricolage Grotesque', 'url(./fonts/BricolageGrotesque-Bold.ttf)', {
-      weight: '700',
-    }),
+    new FontFace(
+      'Bricolage Grotesque',
+      'url(./fonts/BricolageGrotesque-Bold.ttf)',
+      {
+        weight: '700',
+      },
+    ),
     new FontFace('Inter', 'url(./fonts/Inter-Regular.ttf)', { weight: '400' }),
   ]
   Promise.all(faces.map((face) => face.load()))
@@ -74,7 +100,11 @@ export function whenFontsReady(cb) {
 }
 
 function fill(ctx, theme) {
-  if (ctx.surfaceAppearance === 'floating' || ctx.surfaceAppearance === 'cloud-ink') return
+  if (
+    ctx.surfaceAppearance === 'floating' ||
+    ctx.surfaceAppearance === 'cloud-ink'
+  )
+    return
   ctx.save()
   ctx.beginPath()
   ctx.moveTo(130, 845)
@@ -94,7 +124,7 @@ function fill(ctx, theme) {
   ctx.closePath()
   const cloud = ctx.createLinearGradient(0, 60, 0, 1080)
   cloud.addColorStop(0, '#ffffff')
-  cloud.addColorStop(.6, '#f9fcfc')
+  cloud.addColorStop(0.6, '#f9fcfc')
   cloud.addColorStop(1, '#dce9ee')
   ctx.shadowColor = 'rgba(191,218,231,.4)'
   ctx.shadowBlur = 32
@@ -104,26 +134,48 @@ function fill(ctx, theme) {
   ctx.filter = 'none'
   ctx.shadowBlur = 0
   ctx.clip()
-  const puffs = [[280,245,230],[555,142,220],[940,103,265],[1320,140,245],[1665,275,250],[1762,560,230],[1620,862,245],[1280,952,240],[880,961,240],[520,943,240],[250,791,220],[115,499,215]]
-  puffs.forEach(([x,y,radius]) => {
-    const volume = ctx.createRadialGradient(x-radius*.3,y-radius*.38,radius*.03,x,y,radius)
-    volume.addColorStop(0,'rgba(255,255,255,.95)')
-    volume.addColorStop(.48,'rgba(249,253,255,.52)')
-    volume.addColorStop(.78,'rgba(183,204,218,.12)')
-    volume.addColorStop(.88,'rgba(114,151,174,.18)')
-    volume.addColorStop(1,'rgba(114,151,174,0)')
+  const puffs = [
+    [280, 245, 230],
+    [555, 142, 220],
+    [940, 103, 265],
+    [1320, 140, 245],
+    [1665, 275, 250],
+    [1762, 560, 230],
+    [1620, 862, 245],
+    [1280, 952, 240],
+    [880, 961, 240],
+    [520, 943, 240],
+    [250, 791, 220],
+    [115, 499, 215],
+  ]
+  puffs.forEach(([x, y, radius]) => {
+    const volume = ctx.createRadialGradient(
+      x - radius * 0.3,
+      y - radius * 0.38,
+      radius * 0.03,
+      x,
+      y,
+      radius,
+    )
+    volume.addColorStop(0, 'rgba(255,255,255,.95)')
+    volume.addColorStop(0.48, 'rgba(249,253,255,.52)')
+    volume.addColorStop(0.78, 'rgba(183,204,218,.12)')
+    volume.addColorStop(0.88, 'rgba(114,151,174,.18)')
+    volume.addColorStop(1, 'rgba(114,151,174,0)')
     ctx.fillStyle = volume
-    ctx.beginPath(); ctx.arc(x,y,radius,0,Math.PI*2); ctx.fill()
+    ctx.beginPath()
+    ctx.arc(x, y, radius, 0, Math.PI * 2)
+    ctx.fill()
   })
   ctx.save()
-  ctx.translate(W/2,H/2)
-  ctx.scale(1,.6)
-  const center = ctx.createRadialGradient(0,0,250,0,0,850)
-  center.addColorStop(0,'rgba(250,253,253,1)')
-  center.addColorStop(.7,'rgba(250,253,253,.95)')
-  center.addColorStop(1,'rgba(250,253,253,0)')
+  ctx.translate(W / 2, H / 2)
+  ctx.scale(1, 0.6)
+  const center = ctx.createRadialGradient(0, 0, 250, 0, 0, 850)
+  center.addColorStop(0, 'rgba(250,253,253,1)')
+  center.addColorStop(0.7, 'rgba(250,253,253,.95)')
+  center.addColorStop(1, 'rgba(250,253,253,0)')
   ctx.fillStyle = center
-  ctx.fillRect(-W,-H,W*2,H*2)
+  ctx.fillRect(-W, -H, W * 2, H * 2)
   ctx.restore()
   ctx.restore()
 }
@@ -141,7 +193,9 @@ function setMono(ctx, size) {
 }
 
 function wrap(ctx, text, maxWidth) {
-  const words = String(text || '').split(/\s+/).filter(Boolean)
+  const words = String(text || '')
+    .split(/\s+/)
+    .filter(Boolean)
   const lines = []
   let line = ''
   for (const word of words) {
@@ -180,8 +234,11 @@ function paintStatement(ctx, slide, theme) {
     ctx.save()
     if (ctx.surfaceAppearance !== 'cloud-ink') ctx.translate(480, 0)
     setDisplay(ctx, slide.id === 'hops-stay' ? 70 : 58)
-    const paragraphs = slide.id === 'hops-stay' ? slide.title.match(/[^.!?]+[.!?]?/g) : slide.title.split('\n')
-    const lines = paragraphs.flatMap(line => wrap(ctx, line.trim(), 760))
+    const paragraphs =
+      slide.id === 'hops-stay'
+        ? slide.title.match(/[^.!?]+[.!?]?/g)
+        : slide.title.split('\n')
+    const lines = paragraphs.flatMap((line) => wrap(ctx, line.trim(), 760))
     const top = Math.max(190, (H - lines.length * 84) / 2 + 55)
     lines.forEach((line, index) => ctx.fillText(line, 100, top + index * 84))
     ctx.restore()
@@ -190,15 +247,20 @@ function paintStatement(ctx, slide, theme) {
   if (slide.captionCard) {
     setDisplay(ctx, 90)
     ctx.textAlign = 'center'
-    const lines = slide.title.split('\n').flatMap(line => wrap(ctx, line, W - 440))
+    const lines = slide.title
+      .split('\n')
+      .flatMap((line) => wrap(ctx, line, W - 440))
     const top = (H - lines.length * 140) / 2 + 100
     lines.forEach((line, index) => ctx.fillText(line, W / 2, top + index * 140))
     return
   }
   setDisplay(ctx, slide.id === 'hops-stay' ? 172 : 80)
-  const lines = slide.id === 'hops-stay' ? slide.title.match(/[^.!?]+[.!?]?/g).map(line => line.trim()) : wrap(ctx, slide.title, W - 280)
+  const lines =
+    slide.id === 'hops-stay'
+      ? slide.title.match(/[^.!?]+[.!?]?/g).map((line) => line.trim())
+      : wrap(ctx, slide.title, W - 280)
   const leading = slide.id === 'hops-stay' ? 205 : 96
-  const top = (H - lines.length * leading) / 2 + leading * .55
+  const top = (H - lines.length * leading) / 2 + leading * 0.55
   lines.forEach((line, i) => ctx.fillText(line, 140, top + i * leading))
 }
 
@@ -246,7 +308,7 @@ function paintCode(ctx, slide, theme, step) {
       ctx.save()
       ctx.translate(index * 960 + (flat && columns.length === 1 ? 480 : 0), 0)
       ctx.save()
-      ctx.scale(.5, 1)
+      ctx.scale(0.5, 1)
       fill(ctx, theme)
       ctx.restore()
       ctx.fillStyle = theme.ink
@@ -256,30 +318,48 @@ function paintCode(ctx, slide, theme, step) {
       const rowCount = Math.ceil(column.lines.length / flowCount)
       const flowWidth = (width - (flowCount - 1) * 40) / flowCount
       const fitSources = column.fitSources || [column.lines]
-      const fitRows = Math.max(...fitSources.map(lines => Math.ceil(lines.length / flowCount)))
+      const fitRows = Math.max(
+        ...fitSources.map((lines) => Math.ceil(lines.length / flowCount)),
+      )
       setMono(ctx, 1)
-      const widest = Math.max(...fitSources.flatMap(lines => lines.map(line => ctx.measureText(line).width)), 1)
-      const fontSize = Math.min(flowWidth / widest, height / Math.max(1, fitRows - 1) / 1.18)
+      const widest = Math.max(
+        ...fitSources.flatMap((lines) =>
+          lines.map((line) => ctx.measureText(line).width),
+        ),
+        1,
+      )
+      const fontSize = Math.min(
+        flowWidth / widest,
+        height / Math.max(1, fitRows - 1) / 1.18,
+      )
       if (flowCount > 1) {
         setBody(ctx, 18)
         ctx.fillStyle = theme.muted
         for (let flow = 0; flow < flowCount; flow++) {
-          ctx.fillText(`${flow * rowCount + 1}–${Math.min(column.lines.length, (flow + 1) * rowCount)}`, inset + flow * (flowWidth + 40), top - 24)
+          ctx.fillText(
+            `${flow * rowCount + 1}–${Math.min(column.lines.length, (flow + 1) * rowCount)}`,
+            inset + flow * (flowWidth + 40),
+            top - 24,
+          )
         }
       }
       setMono(ctx, fontSize)
-      highlightedLines(column.lines, column.lang || slide.lang, column.decorations).forEach((tokens, row) => {
+      highlightedLines(
+        column.lines,
+        column.lang || slide.lang,
+        column.decorations,
+      ).forEach((tokens, row) => {
         const flow = Math.floor(row / rowCount)
         const y = top + (row % rowCount) * fontSize * 1.18
         const x = inset + flow * (flowWidth + 40)
         ctx.save()
-        if (tokens.focused === false) ctx.globalAlpha *= .2
+        if (tokens.focused === false) ctx.globalAlpha *= 0.2
         if (tokens.focused) {
           ctx.fillStyle = theme.accent
-          ctx.fillRect(x - 14, y - fontSize * .85, 4, fontSize * 1.18)
+          ctx.fillRect(x - 14, y - fontSize * 0.85, 4, fontSize * 1.18)
         }
         let prefix = ''
-        tokens.forEach(token => {
+        tokens.forEach((token) => {
           ctx.fillStyle = githubLightTheme.tokens[token.className] || theme.ink
           ctx.fillText(token.value, x + ctx.measureText(prefix).width, y)
           prefix += token.value
@@ -309,76 +389,145 @@ function paintCode(ctx, slide, theme, step) {
     const columns = slide.columnsSteps?.[step]
     if (columns) {
       setDisplay(ctx, 38)
-      const labels = columns.map(column => wrap(ctx, column.title, 760))
+      const labels = columns.map((column) => wrap(ctx, column.title, 760))
       const top = headerBottom + 48
-      const labelHeight = labels.reduce((height, lines) => height + lines.length * 46 + 18, 0)
+      const labelHeight = labels.reduce(
+        (height, lines) => height + lines.length * 46 + 18,
+        0,
+      )
       setMono(ctx, 100)
       const metrics = ctx.measureText('Mg(){}|_')
       const ascent = metrics.actualBoundingBoxAscent / 100
       const descent = metrics.actualBoundingBoxDescent / 100
-      const widest = Math.max(1, ...columns.flatMap(column => column.lines.map(line => ctx.measureText(line).width / 100)))
-      const rowsHeight = columns.reduce((height, column) => height + ascent + descent + Math.max(0, column.lines.length - 1) * 1.18, 0)
-      const availableHeight = codeBottom - top - labelHeight - (columns.length - 1) * 64
+      const widest = Math.max(
+        1,
+        ...columns.flatMap((column) =>
+          column.lines.map((line) => ctx.measureText(line).width / 100),
+        ),
+      )
+      const rowsHeight = columns.reduce(
+        (height, column) =>
+          height +
+          ascent +
+          descent +
+          Math.max(0, column.lines.length - 1) * 1.18,
+        0,
+      )
+      const availableHeight =
+        codeBottom - top - labelHeight - (columns.length - 1) * 64
       const fontSize = Math.min(760 / widest, availableHeight / rowsHeight)
-      if (![widest, availableHeight, fontSize].every(value => Number.isFinite(value) && value > 0)) {
-        throw new Error(`Code panel "${slide.id || slide.title}" cannot fit: stacked headings and notes leave ${availableHeight}px for code. Reflow the panel content.`)
+      if (
+        ![widest, availableHeight, fontSize].every(
+          (value) => Number.isFinite(value) && value > 0,
+        )
+      ) {
+        throw new Error(
+          `Code panel "${slide.id || slide.title}" cannot fit: stacked headings and notes leave ${availableHeight}px for code. Reflow the panel content.`,
+        )
       }
       const leading = fontSize * 1.18
       let y = top
       columns.forEach((column, columnIndex) => {
         setDisplay(ctx, 38)
         ctx.fillStyle = theme.accent
-        labels[columnIndex].forEach((line, index) => ctx.fillText(line, 100, y + index * 46))
+        labels[columnIndex].forEach((line, index) =>
+          ctx.fillText(line, 100, y + index * 46),
+        )
         y += labels[columnIndex].length * 46 + 18 + ascent * fontSize
         setMono(ctx, fontSize)
-        highlightedLines(column.lines, column.lang || slide.lang).forEach((tokens, row) => {
-          let prefix = ''
-          tokens.forEach(token => {
-            ctx.fillStyle = githubLightTheme.tokens[token.className] || theme.ink
-            ctx.fillText(token.value, 100 + ctx.measureText(prefix).width, y + row * leading)
-            prefix += token.value
-          })
-        })
-        y += Math.max(0, column.lines.length - 1) * leading + descent * fontSize + 64
+        highlightedLines(column.lines, column.lang || slide.lang).forEach(
+          (tokens, row) => {
+            let prefix = ''
+            tokens.forEach((token) => {
+              ctx.fillStyle =
+                githubLightTheme.tokens[token.className] || theme.ink
+              ctx.fillText(
+                token.value,
+                100 + ctx.measureText(prefix).width,
+                y + row * leading,
+              )
+              prefix += token.value
+            })
+          },
+        )
+        y +=
+          Math.max(0, column.lines.length - 1) * leading +
+          descent * fontSize +
+          64
       })
       setBody(ctx, 36)
       ctx.fillStyle = theme.muted
-      notes.forEach((line, index) => ctx.fillText(line, 100, noteTop + index * 44))
+      notes.forEach((line, index) =>
+        ctx.fillText(line, 100, noteTop + index * 44),
+      )
       ctx.restore()
       return
     }
     setBody(ctx, 36)
     const subtitle = wrap(ctx, slide.subtitle || '', 760)
-    subtitle.forEach((line, index) => ctx.fillText(line, 100, headerBottom + 70 + index * 44))
+    subtitle.forEach((line, index) =>
+      ctx.fillText(line, 100, headerBottom + 70 + index * 44),
+    )
     const lines = slide.linesSteps?.[step] || slide.lines || []
     const top = headerBottom + 60 + subtitle.length * 44
     setMono(ctx, 100)
     const metrics = ctx.measureText('Mg(){}|_')
     const ascent = metrics.actualBoundingBoxAscent / 100
     const descent = metrics.actualBoundingBoxDescent / 100
-    const widest = Math.max(1, ...lines.map(line => ctx.measureText(line).width / 100))
+    const widest = Math.max(
+      1,
+      ...lines.map((line) => ctx.measureText(line).width / 100),
+    )
     const availableHeight = codeBottom - top
-    const fontSize = Math.min(760 / widest, availableHeight / (ascent + descent + Math.max(0, lines.length - 1) * 1.18))
-    if (![widest, availableHeight, fontSize].every(value => Number.isFinite(value) && value > 0)) {
-      throw new Error(`Code panel "${slide.id || slide.title}" cannot fit: heading and notes leave ${availableHeight}px for code. Reflow the panel content.`)
+    const fontSize = Math.min(
+      760 / widest,
+      availableHeight /
+        (ascent + descent + Math.max(0, lines.length - 1) * 1.18),
+    )
+    if (
+      ![widest, availableHeight, fontSize].every(
+        (value) => Number.isFinite(value) && value > 0,
+      )
+    ) {
+      throw new Error(
+        `Code panel "${slide.id || slide.title}" cannot fit: heading and notes leave ${availableHeight}px for code. Reflow the panel content.`,
+      )
     }
     const codeTop = top + ascent * fontSize
     const leading = fontSize * 1.18
-    const highlights = new Set(slide.highlightSteps?.[step] || slide.highlight || [])
+    const highlights = new Set(
+      slide.highlightSteps?.[step] || slide.highlight || [],
+    )
     setMono(ctx, fontSize)
     highlightedLines(lines, slide.lang).forEach((tokens, row) => {
       let prefix = ''
       const active = !highlights.size || highlights.has(row)
-      if (highlights.has(row)) { ctx.fillStyle = theme.accent; ctx.fillRect(78, codeTop + row * leading - ascent * fontSize, 4, (ascent + descent) * fontSize) }
-      tokens.forEach(token => {
-        ctx.fillStyle = active ? githubLightTheme.tokens[token.className] || theme.ink : mutedCodeColors[token.className] || '#424b52'
-        ctx.fillText(token.value, 100 + ctx.measureText(prefix).width, codeTop + row * leading)
+      if (highlights.has(row)) {
+        ctx.fillStyle = theme.accent
+        ctx.fillRect(
+          78,
+          codeTop + row * leading - ascent * fontSize,
+          4,
+          (ascent + descent) * fontSize,
+        )
+      }
+      tokens.forEach((token) => {
+        ctx.fillStyle = active
+          ? githubLightTheme.tokens[token.className] || theme.ink
+          : mutedCodeColors[token.className] || '#424b52'
+        ctx.fillText(
+          token.value,
+          100 + ctx.measureText(prefix).width,
+          codeTop + row * leading,
+        )
         prefix += token.value
       })
     })
     setBody(ctx, 36)
     ctx.fillStyle = theme.muted
-    notes.forEach((line, index) => ctx.fillText(line, 100, noteTop + index * 44))
+    notes.forEach((line, index) =>
+      ctx.fillText(line, 100, noteTop + index * 44),
+    )
     ctx.restore()
     return
   }
@@ -399,16 +548,22 @@ function paintCode(ctx, slide, theme, step) {
       setMono(ctx, 42)
       highlightedLines(column.lines, slide.lang).forEach((tokens, row) => {
         let prefix = ''
-        tokens.forEach(token => {
+        tokens.forEach((token) => {
           ctx.fillStyle = githubLightTheme.tokens[token.className] || theme.ink
-          ctx.fillText(token.value, x + ctx.measureText(prefix).width, 390 + row * 44)
+          ctx.fillText(
+            token.value,
+            x + ctx.measureText(prefix).width,
+            390 + row * 44,
+          )
           prefix += token.value
         })
       })
     })
     setBody(ctx, 40)
     ctx.fillStyle = theme.muted
-    wrap(ctx, slide.notesSteps?.[step] || '', 1440).forEach((line, index) => ctx.fillText(line, 240, 700 + index * 44))
+    wrap(ctx, slide.notesSteps?.[step] || '', 1440).forEach((line, index) =>
+      ctx.fillText(line, 240, 700 + index * 44),
+    )
     return
   }
   const lines = (slide.linesSteps?.[step] || slide.lines || []).slice(0, 7)
@@ -425,9 +580,11 @@ function paintCode(ctx, slide, theme, step) {
     }
     ctx.globalAlpha = 1
     let prefix = ''
-    tokens.forEach(token => {
+    tokens.forEach((token) => {
       ctx.fillStyle = active
-        ? githubLightTheme.tokens[token.className] || githubLightTheme.foreground || theme.ink
+        ? githubLightTheme.tokens[token.className] ||
+          githubLightTheme.foreground ||
+          theme.ink
         : mutedCodeColors[token.className] || '#424b52'
       ctx.fillText(token.value, 180 + ctx.measureText(prefix).width, y)
       prefix += token.value
@@ -438,7 +595,9 @@ function paintCode(ctx, slide, theme, step) {
   if (note) {
     setBody(ctx, slide.sidebar ? 60 : 40)
     ctx.fillStyle = theme.muted
-    wrap(ctx, note, 1440).forEach((line, index) => ctx.fillText(line, 240, (slide.sidebar ? 730 : 700) + index * 44))
+    wrap(ctx, note, 1440).forEach((line, index) =>
+      ctx.fillText(line, 240, (slide.sidebar ? 730 : 700) + index * 44),
+    )
   }
 }
 
@@ -471,14 +630,21 @@ export function paint(canvas, slide, step, theme, appearance) {
   if (!appearance && slide?.hopCode) slide = slide.hopCode
   if (!appearance && (slide.splitSide || slide.splitSides || slide.sidebar)) {
     slide = { ...slide, halfPanel: true }
-    if (slide.form === 'punch') slide = { ...slide, form: 'statement', title: slide.captionSteps?.[step] || slide.caption || slide.title }
+    if (slide.form === 'punch')
+      slide = {
+        ...slide,
+        form: 'statement',
+        title: slide.captionSteps?.[step] || slide.caption || slide.title,
+      }
   }
-  if (!appearance && slide.id === 'three-islands') slide = { ...slide, title: 'Browser     Server     Provider' }
+  if (!appearance && slide.id === 'three-islands')
+    slide = { ...slide, title: 'Browser     Server     Provider' }
   const ctx = canvas.getContext('2d')
   ctx.save()
   ctx.clearRect(0, 0, W, H)
   const form = slide?.form || 'statement'
-  ctx.surfaceAppearance = appearance || (form === 'title' ? 'floating' : 'cloud')
+  ctx.surfaceAppearance =
+    appearance || (form === 'title' ? 'floating' : 'cloud')
   if (!appearance && form === 'title') {
     const sky = ctx.createLinearGradient(0, 0, 0, H)
     sky.addColorStop(0, '#244d67')

@@ -24,41 +24,81 @@ export function Surface({
   const group = useRef()
   const cloudMesh = useRef()
   const localCamera = useMemo(() => new THREE.Vector3(), [])
-  const morph = useMemo(() => ({ previousMap: { value: null }, textBlend: { value: 1 } }), [])
-  const morphElapsed = useRef(.9)
+  const morph = useMemo(
+    () => ({ previousMap: { value: null }, textBlend: { value: 1 } }),
+    [],
+  )
+  const morphElapsed = useRef(0.9)
   const lastPaint = useRef(null)
   useFrame(({ camera }, delta) => {
-    if (morphElapsed.current < .9) {
-      morphElapsed.current = Math.min(.9, morphElapsed.current + Math.min(delta, .1))
-      const t = morphElapsed.current / .9
+    if (morphElapsed.current < 0.9) {
+      morphElapsed.current = Math.min(
+        0.9,
+        morphElapsed.current + Math.min(delta, 0.1),
+      )
+      const t = morphElapsed.current / 0.9
       morph.textBlend.value = t * t * (3 - 2 * t)
     }
     if (!group.current || !cloudMesh.current) return
     localCamera.copy(camera.position)
     group.current.worldToLocal(localCamera)
-    if (localCamera.z > .01) cloudMesh.current.position.set(-.24 * localCamera.x / localCamera.z, -.24 * localCamera.y / localCamera.z, 0)
+    if (localCamera.z > 0.01)
+      cloudMesh.current.position.set(
+        (-0.24 * localCamera.x) / localCamera.z,
+        (-0.24 * localCamera.y) / localCamera.z,
+        0,
+      )
   })
   const cloudGeometry = useMemo(() => {
     if (appearance !== 'cloud') return null
-    const field = new MarchingCubes(56, new THREE.MeshBasicMaterial(), false, false, 30000)
+    const field = new MarchingCubes(
+      56,
+      new THREE.MeshBasicMaterial(),
+      false,
+      false,
+      30000,
+    )
     field.isolation = 80
     for (let x = 0; x < 7; x++) {
       for (let y = 0; y < 3; y++) {
         const phase = x * 2.17 + y * 1.61
-        field.addBall(.2 + x * .1, .36 + y * .14 + Math.sin(phase) * .025, .5 + Math.cos(phase) * .03, .85 + Math.sin(phase) * .16, 12)
+        field.addBall(
+          0.2 + x * 0.1,
+          0.36 + y * 0.14 + Math.sin(phase) * 0.025,
+          0.5 + Math.cos(phase) * 0.03,
+          0.85 + Math.sin(phase) * 0.16,
+          12,
+        )
       }
     }
     field.update()
     const geometry = new THREE.BufferGeometry()
     const count = field.geometry.drawRange.count * 3
-    geometry.setAttribute('position', new THREE.BufferAttribute(field.geometry.attributes.position.array.slice(0, count), 3))
-    geometry.setAttribute('normal', new THREE.BufferAttribute(field.geometry.attributes.normal.array.slice(0, count), 3))
+    geometry.setAttribute(
+      'position',
+      new THREE.BufferAttribute(
+        field.geometry.attributes.position.array.slice(0, count),
+        3,
+      ),
+    )
+    geometry.setAttribute(
+      'normal',
+      new THREE.BufferAttribute(
+        field.geometry.attributes.normal.array.slice(0, count),
+        3,
+      ),
+    )
     geometry.computeBoundingBox()
     const size = geometry.boundingBox.getSize(new THREE.Vector3())
     geometry.center()
-    geometry.scale(1.78 / size.x, (halfPanel ? 2 : compact ? .66 : 1.02) / size.y, .4 / size.z)
-    geometry.translate(0, 0, -.24)
-    field.geometry.dispose(); field.material.dispose()
+    geometry.scale(
+      1.78 / size.x,
+      (halfPanel ? 2 : compact ? 0.66 : 1.02) / size.y,
+      0.4 / size.z,
+    )
+    geometry.translate(0, 0, -0.24)
+    field.geometry.dispose()
+    field.material.dispose()
     return geometry
   }, [appearance, compact, halfPanel])
   useEffect(() => () => cloudGeometry?.dispose(), [cloudGeometry])
@@ -87,10 +127,15 @@ export function Surface({
     return { map, scratch }
   }, [Boolean(slide.codeWall)])
   useEffect(() => () => history?.map.dispose(), [history])
-  const compileMorph = useMemo(() => shader => {
-    Object.assign(shader.uniforms, morph)
-    shader.fragmentShader = 'uniform sampler2D previousMap;\nuniform float textBlend;\n' + shader.fragmentShader
-    shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
+  const compileMorph = useMemo(
+    () => (shader) => {
+      Object.assign(shader.uniforms, morph)
+      shader.fragmentShader =
+        'uniform sampler2D previousMap;\nuniform float textBlend;\n' +
+        shader.fragmentShader
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <map_fragment>',
+        `
       #ifdef USE_MAP
         vec4 oldText = sRGBTransferOETF(texture2D(previousMap, vMapUv));
         vec4 newText = sRGBTransferOETF(texture2D(map, vMapUv));
@@ -98,8 +143,11 @@ export function Surface({
         vec3 rgb = mix(oldText.rgb * oldText.a, newText.rgb * newText.a, textBlend) / max(alpha, 0.00001);
         diffuseColor *= sRGBTransferEOTF(vec4(rgb, alpha));
       #endif
-    `)
-  }, [morph])
+    `,
+      )
+    },
+    [morph],
+  )
 
   useLayoutEffect(() => {
     let active = true
@@ -128,29 +176,65 @@ export function Surface({
         }
       } else {
         morph.previousMap.value = null
-        morphElapsed.current = .9
+        morphElapsed.current = 0.9
         morph.textBlend.value = 1
       }
-      paint(texture.image, slide, step, theme, appearance === 'cloud' ? 'cloud-ink' : appearance)
-      texture.repeat.set(halfPanel ? .5 : 1, halfPanel ? 1 : compact ? 660 / 1080 : 1)
+      paint(
+        texture.image,
+        slide,
+        step,
+        theme,
+        appearance === 'cloud' ? 'cloud-ink' : appearance,
+      )
+      texture.repeat.set(
+        halfPanel ? 0.5 : 1,
+        halfPanel ? 1 : compact ? 660 / 1080 : 1,
+      )
       texture.offset.set(0, !halfPanel && compact ? 320 / 1080 : 0)
       texture.needsUpdate = true
       lastPaint.current = { id: slide.id, wall: Boolean(slide.codeWall) }
     }
     draw()
     whenFontsReady(draw)
-    return () => { active = false }
-  }, [slide, step, theme, texture, appearance, compact, halfPanel, history, morph])
+    return () => {
+      active = false
+    }
+  }, [
+    slide,
+    step,
+    theme,
+    texture,
+    appearance,
+    compact,
+    halfPanel,
+    history,
+    morph,
+  ])
   useEffect(() => () => texture.dispose(), [texture])
 
   return (
-    <group ref={group} position={position} rotation={rotation} scale={appearance === 'cloud' ? [scale[0], scale[1], scale[0]] : scale} visible={visible}>
-      {cloudGeometry && <mesh ref={cloudMesh} geometry={cloudGeometry}>
-        <meshStandardMaterial color="#f2f5f6" roughness={1} metalness={0} />
-      </mesh>}
-      <mesh position={[0, 0, appearance === 'cloud' ? .03 : 0]}>
-        <planeGeometry args={[1.6, halfPanel ? 1.8 : compact ? .55 : .9]} />
-        <meshBasicMaterial key={slide.codeWall ? 'wall-text' : 'text'} map={texture} transparent depthWrite={false} toneMapped={false} onBeforeCompile={slide.codeWall ? compileMorph : undefined} />
+    <group
+      ref={group}
+      position={position}
+      rotation={rotation}
+      scale={appearance === 'cloud' ? [scale[0], scale[1], scale[0]] : scale}
+      visible={visible}
+    >
+      {cloudGeometry && (
+        <mesh ref={cloudMesh} geometry={cloudGeometry}>
+          <meshStandardMaterial color="#f2f5f6" roughness={1} metalness={0} />
+        </mesh>
+      )}
+      <mesh position={[0, 0, appearance === 'cloud' ? 0.03 : 0]}>
+        <planeGeometry args={[1.6, halfPanel ? 1.8 : compact ? 0.55 : 0.9]} />
+        <meshBasicMaterial
+          key={slide.codeWall ? 'wall-text' : 'text'}
+          map={texture}
+          transparent
+          depthWrite={false}
+          toneMapped={false}
+          onBeforeCompile={slide.codeWall ? compileMorph : undefined}
+        />
       </mesh>
     </group>
   )

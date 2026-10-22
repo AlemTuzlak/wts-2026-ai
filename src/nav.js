@@ -28,7 +28,8 @@ export function bindNav(api) {
     }
     if (key === 'f' || key === 'F') {
       event.preventDefault()
-      if (!document.fullscreenElement) document.documentElement.requestFullscreen()
+      if (!document.fullscreenElement)
+        document.documentElement.requestFullscreen()
       else document.exitFullscreen()
       return
     }

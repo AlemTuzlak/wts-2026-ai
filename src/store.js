@@ -10,7 +10,14 @@ function maxStep(index) {
 }
 
 function slideIndexById(id) {
-  const currentId = id === 'first-ferry' ? 'browser-request' : id === 'diy-browser-events' ? 'browser-response' : id === 'diy-browser-decode' ? 'diy-browser-code' : id
+  const currentId =
+    id === 'first-ferry'
+      ? 'browser-request'
+      : id === 'diy-browser-events'
+        ? 'browser-response'
+        : id === 'diy-browser-decode'
+          ? 'diy-browser-code'
+          : id
   const i = slides.findIndex((s) => s.id === currentId)
   return i >= 0 ? i : 0
 }

@@ -93,8 +93,44 @@ const browserResponseLines = [
 ]
 
 const readerLines = [
-  ...["async function* readSse(body) {","  let line = ''","  let data = []","  let cr = false","  const decoded = body.pipeThrough(","    new TextDecoderStream()","  )","  for await (const text of decoded) {","    for (const c of text) {","      const skip = cr && c === '\\n'","      cr = c === '\\r'","      if (skip) continue","      if (!cr && c !== '\\n') {","        line += c","        continue","      }","      if (line === '') {"],
-  ...["        if (data.length) {","          const json =","            data.join('\\n')","          yield JSON.parse(json)","          data = []","        }","      } else if (","        line.startsWith('data:')","      ) {","        data.push(line.slice(5))","      } else if (line === 'data') {","        data.push('')","      }","      line = ''","    }","  }","}"],
+  ...[
+    'async function* readSse(body) {',
+    "  let line = ''",
+    '  let data = []',
+    '  let cr = false',
+    '  const decoded = body.pipeThrough(',
+    '    new TextDecoderStream()',
+    '  )',
+    '  for await (const text of decoded) {',
+    '    for (const c of text) {',
+    "      const skip = cr && c === '\\n'",
+    "      cr = c === '\\r'",
+    '      if (skip) continue',
+    "      if (!cr && c !== '\\n') {",
+    '        line += c',
+    '        continue',
+    '      }',
+    "      if (line === '') {",
+  ],
+  ...[
+    '        if (data.length) {',
+    '          const json =',
+    "            data.join('\\n')",
+    '          yield JSON.parse(json)',
+    '          data = []',
+    '        }',
+    '      } else if (',
+    "        line.startsWith('data:')",
+    '      ) {',
+    '        data.push(line.slice(5))',
+    "      } else if (line === 'data') {",
+    "        data.push('')",
+    '      }',
+    "      line = ''",
+    '    }',
+    '  }',
+    '}',
+  ],
 ]
 
 const scenes = [
@@ -121,73 +157,214 @@ const scenes = [
     steps: 1,
   },
   {
-    id: 'browser-request', camera: mapCam.hop[0], splitSide: 'left', form: 'punch',
+    id: 'browser-request',
+    camera: mapCam.hop[0],
+    splitSide: 'left',
+    form: 'punch',
     title: 'Browser sends a request to your server.',
-    leg: 0, steps: 3,
+    leg: 0,
+    steps: 3,
     hopCode: {
-      form: 'code', halfPanel: true, lang: 'jsx',
-      titlesSteps: ["React form + answer","Inside send: setup","Inside send: fetch"],
-      linesSteps: [
-        ["function ChatForm() {","  const [answer, setAnswer] =","    useState('')","  // send is defined here, next.","  return (","    <form action={send}>","      <input","        name=\"prompt\"","        required","      />","      <button type=\"submit\">","        Send","      </button>","      <p>{answer}</p>","    </form>","  )","}"],
-        ["async function send(data) {","  setAnswer('')","  const content = String(","    data.get('prompt')","  )","  const init = {","    method: 'POST',","    headers: {","      'Content-Type':","        'application/json',","    },","    body: JSON.stringify({","      messages: [","        { role: 'user', content },","      ],","    }),","  }"],
-        ['async function send(data) {', '  //... previous slide code', ...browserFetchLines.map(line => `  ${line}`), '  const events = readSse(response.body)', '  for await (const event of events) {', ...browserDeltaLines.map(line => `    ${line}`), '  }', '}'],
+      form: 'code',
+      halfPanel: true,
+      lang: 'jsx',
+      titlesSteps: [
+        'React form + answer',
+        'Inside send: setup',
+        'Inside send: fetch',
       ],
-      notesSteps: ["send belongs inside ChatForm. Next →","Same send function continues next →","readSse and terminal checks follow."],
+      linesSteps: [
+        [
+          'function ChatForm() {',
+          '  const [answer, setAnswer] =',
+          "    useState('')",
+          '  // send is defined here, next.',
+          '  return (',
+          '    <form action={send}>',
+          '      <input',
+          '        name="prompt"',
+          '        required',
+          '      />',
+          '      <button type="submit">',
+          '        Send',
+          '      </button>',
+          '      <p>{answer}</p>',
+          '    </form>',
+          '  )',
+          '}',
+        ],
+        [
+          'async function send(data) {',
+          "  setAnswer('')",
+          '  const content = String(',
+          "    data.get('prompt')",
+          '  )',
+          '  const init = {',
+          "    method: 'POST',",
+          '    headers: {',
+          "      'Content-Type':",
+          "        'application/json',",
+          '    },',
+          '    body: JSON.stringify({',
+          '      messages: [',
+          "        { role: 'user', content },",
+          '      ],',
+          '    }),',
+          '  }',
+        ],
+        [
+          'async function send(data) {',
+          '  //... previous slide code',
+          ...browserFetchLines.map((line) => `  ${line}`),
+          '  const events = readSse(response.body)',
+          '  for await (const event of events) {',
+          ...browserDeltaLines.map((line) => `    ${line}`),
+          '  }',
+          '}',
+        ],
+      ],
+      notesSteps: [
+        'send belongs inside ChatForm. Next →',
+        'Same send function continues next →',
+        'readSse and terminal checks follow.',
+      ],
     },
   },
   {
-    id: 'provider-request', camera: mapCam.hop[1], splitSide: 'right', form: 'punch',
+    id: 'provider-request',
+    camera: mapCam.hop[1],
+    splitSide: 'right',
+    form: 'punch',
     title: 'Server sends a request to the LLM provider.',
-    leg: 1, steps: 2,
+    leg: 1,
+    steps: 2,
     hopCode: {
-      form: 'code', halfPanel: true, lang: 'jsx',
-      titlesSteps: ["Read the request body","Forward to OpenAI"],
+      form: 'code',
+      halfPanel: true,
+      lang: 'jsx',
+      titlesSteps: ['Read the request body', 'Forward to OpenAI'],
       linesSteps: [
-        ['export async function POST(', '  request', ') {', ...serverRequestLines.map(line => `  ${line}`), '}'],
-        ['export async function POST(', '  request', ') {', '  //... previous slide code', ...serverFetchLines.map(line => `  ${line}`), '}'],
+        [
+          'export async function POST(',
+          '  request',
+          ') {',
+          ...serverRequestLines.map((line) => `  ${line}`),
+          '}',
+        ],
+        [
+          'export async function POST(',
+          '  request',
+          ') {',
+          '  //... previous slide code',
+          ...serverFetchLines.map((line) => `  ${line}`),
+          '}',
+        ],
       ],
-      notesSteps: ["Auth and text-input validation omitted.","Server-only URL and auth headers. Host links disconnect to request.signal."],
+      notesSteps: [
+        'Auth and text-input validation omitted.',
+        'Server-only URL and auth headers. Host links disconnect to request.signal.',
+      ],
     },
   },
   {
-    id: 'provider-response', camera: mapCam.hop[1], splitSide: 'right', form: 'punch',
+    id: 'provider-response',
+    camera: mapCam.hop[1],
+    splitSide: 'right',
+    form: 'punch',
     title: 'Provider responds with an SSE stream.',
-    leg: 2, steps: 2,
+    leg: 2,
+    steps: 2,
     hopCode: {
-      form: 'code', halfPanel: true, lang: 'jsx',
-      titlesSteps: ["Return the SSE stream","Relay each byte chunk"],
+      form: 'code',
+      halfPanel: true,
+      lang: 'jsx',
+      titlesSteps: ['Return the SSE stream', 'Relay each byte chunk'],
       linesSteps: [
-        ['export async function POST(', '  request', ') {', '  //... previous slide code', ...serverResponseLines.map(line => `  ${line}`), '}'],
-        ["async function relay() {","  try {","    for await (","      const bytes of upstream.body","    ) {","      await writer.write(bytes)","    }","    await writer.close()","  } catch (error) {","    await writer.abort(error)","  } finally {","    writer.releaseLock()","  }","}"],
+        [
+          'export async function POST(',
+          '  request',
+          ') {',
+          '  //... previous slide code',
+          ...serverResponseLines.map((line) => `  ${line}`),
+          '}',
+        ],
+        [
+          'async function relay() {',
+          '  try {',
+          '    for await (',
+          '      const bytes of upstream.body',
+          '    ) {',
+          '      await writer.write(bytes)',
+          '    }',
+          '    await writer.close()',
+          '  } catch (error) {',
+          '    await writer.abort(error)',
+          '  } finally {',
+          '    writer.releaseLock()',
+          '  }',
+          '}',
+        ],
       ],
-      notesSteps: ["Return now, not after relay.","Inner relay. write waits for capacity. Bytes already contain SSE frames."],
+      notesSteps: [
+        'Return now, not after relay.',
+        'Inner relay. write waits for capacity. Bytes already contain SSE frames.',
+      ],
     },
   },
   {
-    id: 'browser-response', camera: mapCam.hop[0], splitSide: 'left', form: 'punch',
+    id: 'browser-response',
+    camera: mapCam.hop[0],
+    splitSide: 'left',
+    form: 'punch',
     title: 'Server responds with an SSE stream.',
-    leg: 3, steps: 2,
+    leg: 3,
+    steps: 2,
     hopCode: {
-      form: 'code', halfPanel: true, lang: 'jsx',
-      titlesSteps: ["Handle each response event","Read OpenAI JSON events"],
+      form: 'code',
+      halfPanel: true,
+      lang: 'jsx',
+      titlesSteps: ['Handle each response event', 'Read OpenAI JSON events'],
       linesSteps: [
-        ['async function send(data) {', '  //... previous slide code', ...browserResponseLines.map(line => `  ${line}`), '}'],
+        [
+          'async function send(data) {',
+          '  //... previous slide code',
+          ...browserResponseLines.map((line) => `  ${line}`),
+          '}',
+        ],
         readerLines,
       ],
-      notesSteps: ["Complete stops the loop. Failures throw.","Keep partial frames. Drop unfinished data."],
+      notesSteps: [
+        'Complete stops the loop. Failures throw.',
+        'Keep partial frames. Drop unfinished data.',
+      ],
     },
   },
   {
-    id: 'stream-events', camera: mapCam.overview, form: 'punch',
-    title: 'The full loop', steps: 1,
+    id: 'stream-events',
+    camera: mapCam.overview,
+    form: 'punch',
+    title: 'The full loop',
+    steps: 1,
   },
   {
-    id: 'tools-overview', camera: mapCam.overview, form: 'punch',
-    title: 'What if we add tools?', steps: 1,
+    id: 'tools-overview',
+    camera: mapCam.overview,
+    form: 'punch',
+    title: 'What if we add tools?',
+    steps: 1,
   },
   {
-    id: 'client-tool-request', camera: {position:[-23.2012,-31.8785,17.1306],lookAt:[-6.2012,-52.3785,1.1306]}, splitSide: 'left',
-    form: 'code', halfPanel: true, lang: 'js', leg: 0, steps: 1,
+    id: 'client-tool-request',
+    camera: {
+      position: [-23.2012, -31.8785, 17.1306],
+      lookAt: [-6.2012, -52.3785, 1.1306],
+    },
+    splitSide: 'left',
+    form: 'code',
+    halfPanel: true,
+    lang: 'js',
+    leg: 0,
+    steps: 1,
     title: 'Send client tool definitions',
     lines: [
       'async function send(data) {',
@@ -214,8 +391,14 @@ const scenes = [
     note: 'Setup only. Schemas travel; handlers stay in Browser.',
   },
   {
-    id: 'server-tool-request', camera: mapCam.hop[1], splitSide: 'right',
-    form: 'code', halfPanel: true, lang: 'js', leg: 1, steps: 1,
+    id: 'server-tool-request',
+    camera: mapCam.hop[1],
+    splitSide: 'right',
+    form: 'code',
+    halfPanel: true,
+    lang: 'js',
+    leg: 1,
+    steps: 1,
     title: 'Forward both tool definitions',
     lines: [
       'export async function POST(',
@@ -247,14 +430,24 @@ const scenes = [
     note: 'Setup only. Validate client names/schemas. Local dispatch follows.',
   },
   {
-    id: 'server-tool-flow', camera: mapCam.overview, form: 'punch',
-    title: 'A server tool flow', steps: 1,
-    notesSteps: ['Wait for a complete function_call in response.completed. Dispatch only the known get_server_time name with validated arguments. Return function_call_output with the same call_id in a NEW Responses request, using previous_response_id and the same tools. This is a conceptual flow, not an added dispatcher in the earlier text-only code.'],
+    id: 'server-tool-flow',
+    camera: mapCam.overview,
+    form: 'punch',
+    title: 'A server tool flow',
+    steps: 1,
+    notesSteps: [
+      'Wait for a complete function_call in response.completed. Dispatch only the known get_server_time name with validated arguments. Return function_call_output with the same call_id in a NEW Responses request, using previous_response_id and the same tools. This is a conceptual flow, not an added dispatcher in the earlier text-only code.',
+    ],
   },
   {
-    id: 'client-tool-flow', camera: mapCam.overview, form: 'punch',
-    title: 'A client tool flow', steps: 1,
-    notesSteps: ['Server forwards the complete get_browser_time_zone call to Browser. Browser runs its known local handler and returns the result through the app endpoint. Server matches the pending call_id and sends function_call_output in a NEW Responses request with previous_response_id and the same tools. Handle every call; failures and early EOF are not success. Repeat tool turns until a final answer.'],
+    id: 'client-tool-flow',
+    camera: mapCam.overview,
+    form: 'punch',
+    title: 'A client tool flow',
+    steps: 1,
+    notesSteps: [
+      'Server forwards the complete get_browser_time_zone call to Browser. Browser runs its known local handler and returns the result through the app endpoint. Server matches the pending call_id and sends function_call_output in a NEW Responses request with previous_response_id and the same tools. Handle every call; failures and early EOF are not success. Repeat tool turns until a final answer.',
+    ],
   },
   {
     id: 'mcp-punch',
@@ -264,128 +457,162 @@ const scenes = [
     steps: 1,
   },
   {
-    id: 'middleware-lifecycle-overview', camera: mapCam.overview,
-    form: 'punch', title: 'What if we need middleware?', steps: 1,
-    notes: 'The harbor master follows the run lifecycle. Middleware can observe or change work at lifecycle hooks. The ledger shows run start, model call, tool call, stream chunk and run end. These are hook examples, not a fixed or exhaustive event order. This is not a gate or a packet trace.',
+    id: 'middleware-lifecycle-overview',
+    camera: mapCam.overview,
+    form: 'punch',
+    title: 'What if we need middleware?',
+    steps: 1,
+    notes:
+      'The harbor master follows the run lifecycle. Middleware can observe or change work at lifecycle hooks. The ledger shows run start, model call, tool call, stream chunk and run end. These are hook examples, not a fixed or exhaustive event order. This is not a gate or a packet trace.',
   },
   {
-    id: 'middleware-cache', camera: mapCam.codeWall,
-    form: 'code', halfPanel: true, splitSide: 'center', lang: 'ts', steps: 1,
+    id: 'middleware-cache',
+    camera: mapCam.codeWall,
+    form: 'code',
+    halfPanel: true,
+    splitSide: 'center',
+    lang: 'ts',
+    steps: 1,
     title: 'What if we need caching?',
     lines: [
-      "import { toolCacheMiddleware }",
+      'import { toolCacheMiddleware }',
       "  from '@tanstack/ai/middlewares'",
-      "",
-      "const cache = toolCacheMiddleware({",
-      "  ttl: 60_000,",
+      '',
+      'const cache = toolCacheMiddleware({',
+      '  ttl: 60_000,',
       "  toolNames: ['docs_search'],",
-      "})",
-      "",
-      "chat({ ...options,",
-      "  middleware: [cache],",
-      "})",
+      '})',
+      '',
+      'chat({ ...options,',
+      '  middleware: [cache],',
+      '})',
     ],
     highlight: [9],
     note: 'Module scope. Cache a stable read-only tool.',
-    notes: 'This is an addition to the existing Server. options means its existing chat options. All middleware instances are created outside POST and reused across requests. docs_search is illustrative: the docs MCP server must expose a stable public read-only search tool. Do not cache the clocks. The default cache is process-local.',
+    notes:
+      'This is an addition to the existing Server. options means its existing chat options. All middleware instances are created outside POST and reused across requests. docs_search is illustrative: the docs MCP server must expose a stable public read-only search tool. Do not cache the clocks. The default cache is process-local.',
   },
   {
-    id: 'middleware-telemetry', camera: mapCam.codeWall,
-    form: 'code', halfPanel: true, splitSide: 'center', lang: 'ts', steps: 1,
+    id: 'middleware-telemetry',
+    camera: mapCam.codeWall,
+    form: 'code',
+    halfPanel: true,
+    splitSide: 'center',
+    lang: 'ts',
+    steps: 1,
     title: 'What if we need telemetry?',
     lines: [
-      "import { otelMiddleware }",
+      'import { otelMiddleware }',
       "  from '@tanstack/ai/middlewares/otel'",
-      "import { trace }",
+      'import { trace }',
       "  from '@opentelemetry/api'",
-      "",
-      "const telemetry = otelMiddleware({",
+      '',
+      'const telemetry = otelMiddleware({',
       "  tracer: trace.getTracer('talk'),",
-      "})",
-      "",
-      "chat({ ...options,",
-      "  middleware: [",
-      "    telemetry, cache,",
-      "  ],",
-      "})",
+      '})',
+      '',
+      'chat({ ...options,',
+      '  middleware: [',
+      '    telemetry, cache,',
+      '  ],',
+      '})',
     ],
     highlight: [11],
     note: 'Use an already configured OTel SDK.',
-    notes: 'Continue the same module-scope Server setup. options and cache come from the earlier example. The OTel SDK and exporter must already be configured. This snippet alone does not export traces. No telemetry package or service is installed in the presentation.',
+    notes:
+      'Continue the same module-scope Server setup. options and cache come from the earlier example. The OTel SDK and exporter must already be configured. This snippet alone does not export traces. No telemetry package or service is installed in the presentation.',
   },
   {
-    id: 'middleware-persistence', camera: mapCam.codeWall,
-    form: 'code', halfPanel: true, splitSide: 'center', lang: 'ts', steps: 1,
+    id: 'middleware-persistence',
+    camera: mapCam.codeWall,
+    form: 'code',
+    halfPanel: true,
+    splitSide: 'center',
+    lang: 'ts',
+    steps: 1,
     title: 'What if we need persistence?',
     lines: [
-      "import {",
-      "  memoryPersistence, withPersistence,",
+      'import {',
+      '  memoryPersistence, withPersistence,',
       "} from '@tanstack/ai-persistence'",
-      "",
-      "const persistence = withPersistence(",
-      "  memoryPersistence(),",
-      ")",
-      "",
-      "chat({ ...options,",
-      "  middleware: [",
-      "    persistence, telemetry, cache,",
-      "  ],",
-      "})",
+      '',
+      'const persistence = withPersistence(',
+      '  memoryPersistence(),',
+      ')',
+      '',
+      'chat({ ...options,',
+      '  middleware: [',
+      '    persistence, telemetry, cache,',
+      '  ],',
+      '})',
     ],
     highlight: [10],
     note: 'In-process demo. Restart loses the records.',
-    notes: 'Create the persistence middleware once at module scope. This is the process-local memoryPersistence demo, not durable storage. Previous middleware instances and existing chat options remain in scope. Browser reload restoration and stream replay need separate integration.',
+    notes:
+      'Create the persistence middleware once at module scope. This is the process-local memoryPersistence demo, not durable storage. Previous middleware instances and existing chat options remain in scope. Browser reload restoration and stream replay need separate integration.',
   },
   {
-    id: 'middleware-memory', camera: mapCam.codeWall,
-    form: 'code', halfPanel: true, splitSide: 'center', lang: 'ts', steps: 1,
+    id: 'middleware-memory',
+    camera: mapCam.codeWall,
+    form: 'code',
+    halfPanel: true,
+    splitSide: 'center',
+    lang: 'ts',
+    steps: 1,
     title: 'What if we need memory?',
     lines: [
-      "import { memoryMiddleware }",
+      'import { memoryMiddleware }',
       "  from '@tanstack/ai-memory'",
-      "import { inMemory }",
+      'import { inMemory }',
       "  from '@tanstack/ai-memory/in-memory'",
-      "",
-      "const memory = memoryMiddleware({",
-      "  adapter: inMemory(),",
-      "  scope: ctx => ({",
-      "    threadId: ctx.threadId,",
-      "  }),",
-      "})",
-      "",
-      "chat({ ...options,",
-      "  middleware: [",
-      "    persistence, memory,",
-      "    telemetry, cache,",
-      "  ],",
-      "})",
+      '',
+      'const memory = memoryMiddleware({',
+      '  adapter: inMemory(),',
+      '  scope: ctx => ({',
+      '    threadId: ctx.threadId,',
+      '  }),',
+      '})',
+      '',
+      'chat({ ...options,',
+      '  middleware: [',
+      '    persistence, memory,',
+      '    telemetry, cache,',
+      '  ],',
+      '})',
     ],
     highlight: [14],
     note: 'Single-user thread memory. Lost on restart.',
-    notes: 'Reuse this module-scope memory instance. The inMemory adapter uses lexical recall and stores raw turns. It requires no embeddings, model call or external service. This is a single-user demo scoped to threadId. Production code must authorize thread ownership and derive user or tenant scope on Server. It does not share memory across different thread IDs. Keep the earlier persistence, telemetry and cache instances.',
+    notes:
+      'Reuse this module-scope memory instance. The inMemory adapter uses lexical recall and stores raw turns. It requires no embeddings, model call or external service. This is a single-user demo scoped to threadId. Production code must authorize thread ownership and derive user or tenant scope on Server. It does not share memory across different thread IDs. Keep the earlier persistence, telemetry and cache instances.',
   },
   {
-    id: 'middleware-compaction', camera: mapCam.codeWall,
-    form: 'code', halfPanel: true, splitSide: 'center', lang: 'ts', steps: 1,
+    id: 'middleware-compaction',
+    camera: mapCam.codeWall,
+    form: 'code',
+    halfPanel: true,
+    splitSide: 'center',
+    lang: 'ts',
+    steps: 1,
     title: 'What if the context gets too large?',
     lines: [
-      "import { withCompaction }",
+      'import { withCompaction }',
       "  from '@tanstack/ai-compaction'",
-      "",
-      "const compaction = withCompaction({",
-      "  maxTokens: 100_000,",
-      "})",
-      "",
-      "chat({ ...options,",
-      "  middleware: [",
-      "    persistence, memory,",
-      "    compaction, telemetry, cache,",
-      "  ],",
-      "})",
+      '',
+      'const compaction = withCompaction({',
+      '  maxTokens: 100_000,',
+      '})',
+      '',
+      'chat({ ...options,',
+      '  middleware: [',
+      '    persistence, memory,',
+      '    compaction, telemetry, cache,',
+      '  ],',
+      '})',
     ],
     highlight: [10],
     note: 'Evict old messages. Keep the stored transcript.',
-    notes: 'Create compaction once at module scope. The default evictOldest strategy makes no extra model call. It changes the provider message context, not the stored transcript. System prompts, including recalled memory, are outside this message budget. The snippet continues the same existing chat options and middleware instances.',
+    notes:
+      'Create compaction once at module scope. The default evictOldest strategy makes no extra model call. It changes the provider message context, not the stored transcript. System prompts, including recalled memory, are outside this message budget. The snippet continues the same existing chat options and middleware instances.',
   },
   {
     id: 'close',
@@ -402,19 +629,24 @@ const scenes = [
     title: 'Thank you',
     kicker: 'Alem Tuzlak',
     steps: 1,
-    notes: 'The camera travels through the open cabin window toward the sunset. Thank you.',
+    notes:
+      'The camera travels through the open cabin window toward the sunset. Thank you.',
   },
 ]
 
 const codeSlideIds = {
-  'browser-request': ['browser-request', 'browser-request-send', 'browser-request-fetch'],
+  'browser-request': [
+    'browser-request',
+    'browser-request-send',
+    'browser-request-fetch',
+  ],
   'provider-request': ['provider-request', 'diy-server-code'],
   'provider-response': ['provider-response', 'diy-server-relay'],
   'browser-response': ['browser-response', 'diy-browser-code'],
 }
 
 // Code changes are real slides. World identity keeps the ferry and cloud in place.
-const sequence = scenes.flatMap(scene => {
+const sequence = scenes.flatMap((scene) => {
   const ids = codeSlideIds[scene.id]
   if (!ids) return [scene]
   return ids.map((id, variant) => {
@@ -426,7 +658,9 @@ const sequence = scenes.flatMap(scene => {
       titlesSteps: undefined,
       lines: source.linesSteps?.[variant] || source.lines,
       linesSteps: undefined,
-      columnsSteps: source.columnsSteps?.[variant] ? [source.columnsSteps[variant]] : undefined,
+      columnsSteps: source.columnsSteps?.[variant]
+        ? [source.columnsSteps[variant]]
+        : undefined,
       highlight: source.highlightSteps?.[variant] || source.highlight,
       highlightSteps: undefined,
       note,
@@ -450,22 +684,45 @@ const sequence = scenes.flatMap(scene => {
 })
 
 // The code wall uses the same displayed fragments as the readable walkthrough.
-const roundTripCode = Object.fromEntries(sequence.filter(slide => slide.hopCode).map(slide => [slide.id, slide.hopCode.lines.join('\n')]))
+const roundTripCode = Object.fromEntries(
+  sequence
+    .filter((slide) => slide.hopCode)
+    .map((slide) => [slide.id, slide.hopCode.lines.join('\n')]),
+)
 const completeSend = [
   roundTripCode['browser-request-send'],
-  browserFetchLines.map(line => `  ${line}`).join('\n'),
-  browserResponseLines.map(line => `  ${line}`).join('\n'),
+  browserFetchLines.map((line) => `  ${line}`).join('\n'),
+  browserResponseLines.map((line) => `  ${line}`).join('\n'),
   '}',
 ].join('\n')
-const clientCode = roundTripCode['browser-request'].replace(
-  '  // send is defined here, next.',
-  completeSend.split('\n').map(line => `  ${line}`).join('\n'),
-) + '\n\n' + roundTripCode['diy-browser-code']
-const serverCode = 'async function POST(request) {\n' + [
-  serverRequestLines.join('\n'), serverFetchLines.join('\n'),
-  serverResponseLines.join('\n'), roundTripCode['diy-server-relay'],
-].map(code => code.split('\n').map(line => `  ${line}`).join('\n')).join('\n') + '\n}'
-const wallIndex = sequence.findIndex(slide => slide.id === 'diy-browser-code') + 1
+const clientCode =
+  roundTripCode['browser-request'].replace(
+    '  // send is defined here, next.',
+    completeSend
+      .split('\n')
+      .map((line) => `  ${line}`)
+      .join('\n'),
+  ) +
+  '\n\n' +
+  roundTripCode['diy-browser-code']
+const serverCode =
+  'async function POST(request) {\n' +
+  [
+    serverRequestLines.join('\n'),
+    serverFetchLines.join('\n'),
+    serverResponseLines.join('\n'),
+    roundTripCode['diy-server-relay'],
+  ]
+    .map((code) =>
+      code
+        .split('\n')
+        .map((line) => `  ${line}`)
+        .join('\n'),
+    )
+    .join('\n') +
+  '\n}'
+const wallIndex =
+  sequence.findIndex((slide) => slide.id === 'diy-browser-code') + 1
 const toolCommon = String.raw`const emptyInput = {
   type: 'object', properties: {},
   required: [], additionalProperties: false,
@@ -916,11 +1173,24 @@ export async function POST(request) {
   )
 }`
 
-const diyToolClient = "import { useRef, useState } from 'react'\n\n" + toolCommon + '\n\n' + toolClientMain.split('\n').slice(2).join('\n') + '\n\n' + roundTripCode['diy-browser-code']
-const diyToolServer = toolCommon + '\n\n' + toolServerMain + '\n\n' + roundTripCode['diy-browser-code']
+const diyToolClient =
+  "import { useRef, useState } from 'react'\n\n" +
+  toolCommon +
+  '\n\n' +
+  toolClientMain.split('\n').slice(2).join('\n') +
+  '\n\n' +
+  roundTripCode['diy-browser-code']
+const diyToolServer =
+  toolCommon +
+  '\n\n' +
+  toolServerMain +
+  '\n\n' +
+  roundTripCode['diy-browser-code']
 
 // Approval walls retain the full reader and tool helpers from the tools wall.
-const approvalCommon = toolCommon.slice(0, toolCommon.indexOf('function checkPause')) + String.raw`const deniedOutput = JSON.stringify({ error: 'Tool call denied' })
+const approvalCommon =
+  toolCommon.slice(0, toolCommon.indexOf('function checkPause')) +
+  String.raw`const deniedOutput = JSON.stringify({ error: 'Tool call denied' })
 
 function checkPause(pause, cache) {
   if (
@@ -1154,7 +1424,8 @@ function ChatForm() {
 
 const approvalServerMain = toolServerMain
   .replace('let cache = new Map()', 'let cache = new Map()\n  let execution')
-  .replace(String.raw`      const batch = checkPause(pause, cache)
+  .replace(
+    String.raw`      const batch = checkPause(pause, cache)
       input = readOutputs(pause.outputs)
       if (
         input.length !== batch.ids.size ||
@@ -1164,7 +1435,8 @@ const approvalServerMain = toolServerMain
         const saved = cache.get(output.call_id)
         if (!saved || saved.output !== output.output)
           throw Error('Tool output changed')
-      }`, String.raw`      const calls = checkPause(pause, cache)
+      }`,
+    String.raw`      const calls = checkPause(pause, cache)
       const decisions = checkDecisions(pause.decisions, calls)
       checkDenied(calls, decisions, cache)
       if (pause.type === 'app.approvals') {
@@ -1176,8 +1448,11 @@ const approvalServerMain = toolServerMain
         )
         checkResults(pause.serverOutputs, serverCalls, cache)
         input = checkResults(pause.outputs, calls, cache)
-      }`)
-  .replace('      for (;;) {', String.raw`      if (execution) {
+      }`,
+  )
+  .replace(
+    '      for (;;) {',
+    String.raw`      if (execution) {
         const { pause, calls, decisions } = execution
         const serverOutputs = []
         for (const call of calls) {
@@ -1198,17 +1473,35 @@ const approvalServerMain = toolServerMain
         await writer.close()
         return
       }
-      for (;;) {`)
-  .replace(toolServerMain.slice(toolServerMain.indexOf('        const serverOutputs = []'), toolServerMain.indexOf('\n      }\n      await writer.close()')), String.raw`        // Every tool waits. The browser supplies the decisions.
+      for (;;) {`,
+  )
+  .replace(
+    toolServerMain.slice(
+      toolServerMain.indexOf('        const serverOutputs = []'),
+      toolServerMain.indexOf('\n      }\n      await writer.close()'),
+    ),
+    String.raw`        // Every tool waits. The browser supplies the decisions.
         await emit({
           type: 'app.approvals',
           previous_response_id: completed.id,
           calls, cache: [...cache.values()], round,
         })
-        break`)
+        break`,
+  )
 
-const diyApprovalClient = "import { useEffect, useRef, useState } from 'react'\n\n" + approvalCommon + '\n\n' + approvalClientMain + '\n\n' + roundTripCode['diy-browser-code']
-const diyApprovalServer = approvalCommon + '\n\n' + approvalServerMain + '\n\n' + roundTripCode['diy-browser-code']
+const diyApprovalClient =
+  "import { useEffect, useRef, useState } from 'react'\n\n" +
+  approvalCommon +
+  '\n\n' +
+  approvalClientMain +
+  '\n\n' +
+  roundTripCode['diy-browser-code']
+const diyApprovalServer =
+  approvalCommon +
+  '\n\n' +
+  approvalServerMain +
+  '\n\n' +
+  roundTripCode['diy-browser-code']
 
 const tanstackApprovalDefinitions = String.raw`import { toolDefinition } from '@tanstack/ai'
 import { z } from 'zod'
@@ -1227,35 +1520,74 @@ export const serverTime = toolDefinition({
 })`
 
 const tanstackApprovalClient = tanstackToolClient
-  .replace("import { toolDefinition } from '@tanstack/ai'\nimport { z } from 'zod'", "import { browserTimeZone, serverTime } from './tools'")
-  .replace(tanstackToolClient.slice(tanstackToolClient.indexOf('const browserTimeZone'), tanstackToolClient.indexOf('function ChatForm')), '')
-  .replace('    messages, sendMessage, isLoading, error,', '    messages, sendMessage, isLoading, error,\n    interrupts, resuming,')
-  .replace('tools: [browserTimeZone]', String.raw`tools: [
+  .replace(
+    "import { toolDefinition } from '@tanstack/ai'\nimport { z } from 'zod'",
+    "import { browserTimeZone, serverTime } from './tools'",
+  )
+  .replace(
+    tanstackToolClient.slice(
+      tanstackToolClient.indexOf('const browserTimeZone'),
+      tanstackToolClient.indexOf('function ChatForm'),
+    ),
+    '',
+  )
+  .replace(
+    '    messages, sendMessage, isLoading, error,',
+    '    messages, sendMessage, isLoading, error,\n    interrupts, resuming,',
+  )
+  .replace(
+    'tools: [browserTimeZone]',
+    String.raw`tools: [
       browserTimeZone.client(() => ({
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       })),
       serverTime,
-    ]`)
-  .replace('  async function send(data) {', String.raw`  const approval = interrupts.find(
+    ]`,
+  )
+  .replace(
+    '  async function send(data) {',
+    String.raw`  const approval = interrupts.find(
     interrupt => interrupt.kind === 'tool-approval'
   )
-  async function send(data) {`)
-  .replace('disabled={isLoading}', 'disabled={isLoading || resuming || interrupts.length > 0}')
-  .replace('      {error &&', String.raw`      {approval && (
+  async function send(data) {`,
+  )
+  .replace(
+    'disabled={isLoading}',
+    'disabled={isLoading || resuming || interrupts.length > 0}',
+  )
+  .replace(
+    '      {error &&',
+    String.raw`      {approval && (
         <button type="button" disabled={resuming}
           onClick={() => approval.resolveInterrupt(true)}>
           Approve {approval.toolName}
         </button>
       )}
-      {error &&`)
+      {error &&`,
+  )
 const tanstackApprovalServer = tanstackToolServer
-  .replace('chat, toolDefinition, toServerSentEventsResponse', 'chat, toServerSentEventsResponse')
-  .replace("import { z } from 'zod'", "import { browserTimeZone, serverTime } from './tools'")
-  .replace(tanstackToolServer.slice(tanstackToolServer.indexOf('const browserTimeZone'), tanstackToolServer.indexOf('export async function POST')), '')
-  .replace('tools: [browserTimeZone, serverTime]', String.raw`tools: [
+  .replace(
+    'chat, toolDefinition, toServerSentEventsResponse',
+    'chat, toServerSentEventsResponse',
+  )
+  .replace(
+    "import { z } from 'zod'",
+    "import { browserTimeZone, serverTime } from './tools'",
+  )
+  .replace(
+    tanstackToolServer.slice(
+      tanstackToolServer.indexOf('const browserTimeZone'),
+      tanstackToolServer.indexOf('export async function POST'),
+    ),
+    '',
+  )
+  .replace(
+    'tools: [browserTimeZone, serverTime]',
+    String.raw`tools: [
       browserTimeZone,
       serverTime.server(() => ({ utc: new Date().toISOString() })),
-    ]`)
+    ]`,
+  )
 
 const mcpServerHelpers = String.raw`function checkRemoteCalls(items, routes) {
   if (!Array.isArray(items)) throw Error('Invalid MCP calls')
@@ -1329,16 +1661,27 @@ function remoteOutputs(calls, history) {
   })
 }`
 
-const diyMcpServer = "import { Client } from '@modelcontextprotocol/sdk/client/index.js'\nimport { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'\n\n" +
+const diyMcpServer =
+  "import { Client } from '@modelcontextprotocol/sdk/client/index.js'\nimport { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'\n\n" +
   diyApprovalServer
-    .replace('const tools = [{', mcpServerHelpers + '\n\n' + String.raw`const remotes = [
+    .replace(
+      'const tools = [{',
+      mcpServerHelpers +
+        '\n\n' +
+        String.raw`const remotes = [
   { prefix: 'docs', url: 'https://docs.example.com/mcp' },
 ]
 
-const tools = [{`)
+const tools = [{`,
+    )
     .replace('  let execution', '  let execution, resumePause')
-    .replace('      const pause = body.resume', '      const pause = body.resume\n      resumePause = pause')
-    .replace('  async function run() {\n    try {', String.raw`  async function run() {
+    .replace(
+      '      const pause = body.resume',
+      '      const pause = body.resume\n      resumePause = pause',
+    )
+    .replace(
+      '  async function run() {\n    try {',
+      String.raw`  async function run() {
     const clients = []
     const routes = new Map()
     const providerTools = [...tools]
@@ -1380,17 +1723,26 @@ const tools = [{`)
         const outputs = remoteOutputs(batch.mcpCalls, remoteHistory)
         if (!execution) input = [...input, ...outputs]
       }
-      request.signal.throwIfAborted()`)
-    .replace('            tools, stream: true,', '            tools: providerTools, stream: true,')
-    .replace(String.raw`        const calls = checkCalls(completed.output.filter(
+      request.signal.throwIfAborted()`,
+    )
+    .replace(
+      '            tools, stream: true,',
+      '            tools: providerTools, stream: true,',
+    )
+    .replace(
+      String.raw`        const calls = checkCalls(completed.output.filter(
           item => item?.type === 'function_call'
         ))
-        if (!calls.length) {`, String.raw`        const { calls, mcpCalls } = checkCombinedCalls(
+        if (!calls.length) {`,
+      String.raw`        const { calls, mcpCalls } = checkCombinedCalls(
           completed.output.filter(item => item?.type === 'function_call'),
           routes, cache, remoteHistory,
         )
-        if (!calls.length && !mcpCalls.length) {`)
-    .replace('        // Every tool waits. The browser supplies the decisions.', String.raw`        // Await remote calls on Server. Never put them in the local cache.
+        if (!calls.length && !mcpCalls.length) {`,
+    )
+    .replace(
+      '        // Every tool waits. The browser supplies the decisions.',
+      String.raw`        // Await remote calls on Server. Never put them in the local cache.
         for (const call of mcpCalls) {
           if (remoteHistory.has(call.call_id)) continue
           const route = routes.get(call.name)
@@ -1407,12 +1759,19 @@ const tools = [{`)
           previous_response_id = completed.id
           continue
         }
-        // Only local clocks wait for Browser approval.`)
-    .replace('          calls, cache: [...cache.values()], round,', String.raw`          calls, cache: [...cache.values()], round,
-          mcpCalls, mcpHistory: [...remoteHistory.values()],`)
-    .replace('    } finally {\n      writer.releaseLock()', String.raw`    } finally {
+        // Only local clocks wait for Browser approval.`,
+    )
+    .replace(
+      '          calls, cache: [...cache.values()], round,',
+      String.raw`          calls, cache: [...cache.values()], round,
+          mcpCalls, mcpHistory: [...remoteHistory.values()],`,
+    )
+    .replace(
+      '    } finally {\n      writer.releaseLock()',
+      String.raw`    } finally {
       await Promise.allSettled(clients.map(client => client.close()))
-      writer.releaseLock()`)
+      writer.releaseLock()`,
+    )
 
 const diyMultipleMcpServer = diyMcpServer.replace(
   "  { prefix: 'docs', url: 'https://docs.example.com/mcp' },",
@@ -1420,20 +1779,31 @@ const diyMultipleMcpServer = diyMcpServer.replace(
 )
 
 const tanstackMcpServer = tanstackApprovalServer
-  .replace("import { browserTimeZone", "import { createMCPClient } from '@tanstack/ai-mcp'\nimport { browserTimeZone")
-  .replace('  const abortController', String.raw`  const mcp = await createMCPClient({
+  .replace(
+    'import { browserTimeZone',
+    "import { createMCPClient } from '@tanstack/ai-mcp'\nimport { browserTimeZone",
+  )
+  .replace(
+    '  const abortController',
+    String.raw`  const mcp = await createMCPClient({
     transport: { type: 'http', url: 'https://docs.example.com/mcp' },
     prefix: 'docs',
   })
-  const abortController`)
-  .replace('    abortController,', '    mcp: { clients: [mcp] },\n    abortController,')
+  const abortController`,
+  )
+  .replace(
+    '    abortController,',
+    '    mcp: { clients: [mcp] },\n    abortController,',
+  )
 
 const tanstackMultipleMcpServer = tanstackMcpServer
   .replace('import { createMCPClient }', 'import { createMCPClients }')
-  .replace(String.raw`  const mcp = await createMCPClient({
+  .replace(
+    String.raw`  const mcp = await createMCPClient({
     transport: { type: 'http', url: 'https://docs.example.com/mcp' },
     prefix: 'docs',
-  })`, String.raw`  const pool = await createMCPClients({
+  })`,
+    String.raw`  const pool = await createMCPClients({
     docs: {
       transport: { type: 'http', url: 'https://docs.example.com/mcp' },
     },
@@ -1443,22 +1813,44 @@ const tanstackMultipleMcpServer = tanstackMcpServer
     catalog: {
       transport: { type: 'http', url: 'https://catalog.example.com/mcp' },
     },
-  })`)
+  })`,
+  )
   .replace('mcp: { clients: [mcp] }', 'mcp: { clients: [pool] }')
 
 export const slides = [
   ...sequence.slice(0, wallIndex),
   {
-    id: 'diy-code-wall', worldId: 'diy-code-wall', camera: mapCam.codeWall, form: 'code', codeWall: true,
-    title: 'Client and Server', lang: 'jsx', steps: 1,
+    id: 'diy-code-wall',
+    worldId: 'diy-code-wall',
+    camera: mapCam.codeWall,
+    form: 'code',
+    codeWall: true,
+    title: 'Client and Server',
+    lang: 'jsx',
+    steps: 1,
     wallColumns: [
-      { title: 'Client', lines: clientCode.split('\n'), flowColumns: 2, note: 'React useState import omitted.' },
-      { title: 'Server', lines: serverCode.split('\n'), note: 'Server-only URL/auth and validation omitted.' },
+      {
+        title: 'Client',
+        lines: clientCode.split('\n'),
+        flowColumns: 2,
+        note: 'React useState import omitted.',
+      },
+      {
+        title: 'Server',
+        lines: serverCode.split('\n'),
+        note: 'Server-only URL/auth and validation omitted.',
+      },
     ],
   },
   {
-    id: 'tanstack-code-wall', worldId: 'diy-code-wall', camera: mapCam.codeWall, form: 'code', codeWall: true,
-    title: 'TanStack Client and Server', lang: 'jsx', steps: 1,
+    id: 'tanstack-code-wall',
+    worldId: 'diy-code-wall',
+    camera: mapCam.codeWall,
+    form: 'code',
+    codeWall: true,
+    title: 'TanStack Client and Server',
+    lang: 'jsx',
+    steps: 1,
     wallColumns: [
       {
         title: 'Client · TanStack',
@@ -1523,174 +1915,254 @@ export const slides = [
     ],
   },
   ...sequence.slice(wallIndex),
-].flatMap(slide => slide.id === 'tanstack-code-wall' ? [
-  slide,
-  {
-    ...slide,
-    id: 'tanstack-http-wall',
-    title: 'TanStack over HTTP streams',
-    wallColumns: slide.wallColumns.map((column, index) => ({
-      ...column,
-      title: index === 0 ? 'Client · HTTP stream' : 'Server · HTTP stream',
-      lines: column.lines.map(line => line
-        .replaceAll('fetchServerSentEvents', 'fetchHttpStream')
-        .replaceAll('toServerSentEventsResponse', 'toHttpResponse')),
-    })),
-  },
-  {
-    ...slide,
-    id: 'tanstack-websocket-wall',
-    title: 'TanStack over WebSocket',
-    wallColumns: [
-      {
-        title: 'Client · WebSocket',
-        lines: [
-          "import { useChat } from '@tanstack/ai-react'",
-          'import { webSocket }',
-          "  from '@tanstack/ai-client'",
-          '',
-          'function ChatForm() {',
-          '  const { messages, sendMessage } = useChat({',
-          '    connection:',
-          "      webSocket('/api/chat'),",
-          '  })',
-          '  async function send(data) {',
-          '    await sendMessage(',
-          "      String(data.get('prompt'))",
-          '    )',
-          '  }',
-          '  return (',
-          '    <form action={send}>',
-          '      <input name="prompt" required />',
-          '      <button type="submit">Send</button>',
-          '      {messages.map(message => (',
-          '        <p key={message.id}>',
-          '          {message.parts.map(part =>',
-          "            part.type === 'text'",
-          "              ? part.content : ''",
-          "          ).join('')}",
-          '        </p>',
-          '      ))}',
-          '    </form>',
-          '  )',
-          '}',
-        ],
-        note: 'TanStack owns run frames and UI state.',
-      },
-      {
-        title: 'Server · WebSocket',
-        lines: [
-          'import {',
-          '  chat, toWebSocketStream,',
-          "} from '@tanstack/ai'",
-          "import { openaiText } from '@tanstack/ai-openai'",
-          '',
-          'export function handleSocket(socket, request) {',
-          '  toWebSocketStream(socket, request, {',
-          '    onRun({ messages, threadId, runId }) {',
-          '      const abortController =',
-          '        new AbortController()',
-          '      const stream = chat({',
-          "        adapter: openaiText('gpt-5.5'),",
-          '        messages, threadId, runId,',
-          '        abortController,',
-          '      })',
-          '      return stream',
-          '    },',
-          '  })',
-          '}',
-        ],
-        note: 'Host socket upgrade and upstream cancel wiring omitted.',
-      },
-    ],
-  },
-  {
-    ...slide,
-    id: 'python-code-wall',
-    title: 'A Python server speaks the same AG-UI events',
-    wallColumns: [
-      { ...slide.wallColumns[0], title: 'Client · TanStack SSE', note: 'Back to SSE. The same /api/chat route.' },
-      {
-        title: 'Server · Python', lang: 'python',
-        lines: [
-          'from fastapi import FastAPI',
-          'from starlette.requests import Request',
-          'from starlette.responses import Response',
-          'from pydantic_ai import Agent',
-          'from pydantic_ai.ui.ag_ui import AGUIAdapter',
-          '',
-          'app = FastAPI()',
-          "agent = Agent('openai:gpt-5.5')",
-          '',
-          "@app.post('/api/chat')",
-          'async def run_agent(',
-          '    request: Request,',
-          ') -> Response:',
-          '    return await AGUIAdapter.dispatch_request(',
-          '        request,',
-          '        agent=agent,',
-          '    )',
-        ],
-        note: 'Pydantic AI · AG-UI. Key/auth/host setup omitted.',
-      },
-    ],
-  },
-] : [slide]).flatMap((slide, index, walls) => slide.id === 'tanstack-websocket-wall' ? [
-  slide,
-  ...[
-    ['openrouter', 'OpenRouter', 'openRouterText', 'ai-openrouter', 'openai/gpt-5.5'],
-    ['anthropic', 'Anthropic', 'anthropicText', 'ai-anthropic', 'claude-fable-5-1'],
-    ['xai', 'xAI', 'grokText', 'ai-grok', 'grok-4.6'],
-  ].map(([id, provider, factory, packageName, model]) => ({
-    ...slide,
-    id: `tanstack-${id}-wall`,
-    title: `SSE with ${provider}`,
-    wallColumns: [
-      walls.find(wall => wall.id === 'tanstack-code-wall').wallColumns[0],
-      {
-        ...walls.find(wall => wall.id === 'tanstack-code-wall').wallColumns[1],
-        title: `Server · ${provider}`,
-        lines: walls.find(wall => wall.id === 'tanstack-code-wall').wallColumns[1].lines.map(line => line
-          .replace("import { openaiText } from '@tanstack/ai-openai'", `import { ${factory} } from '@tanstack/${packageName}'`)
-          .replace("openaiText('gpt-5.5')", `${factory}('${model}')`)),
-        note: 'Key/auth/validation and disconnect bridge omitted.',
-      },
-    ],
-  })),
-] : [slide]).flatMap(slide => {
-  const title = slide.id === 'tanstack-code-wall' ? 'Transports'
-    : slide.id === 'tanstack-openrouter-wall' ? 'LLM Providers'
-    : slide.id === 'python-code-wall' ? 'Custom servers?' : null
-  return title ? [{
-    id: title === 'Transports' ? 'protocols' : title === 'LLM Providers' ? 'llm-providers' : 'custom-servers',
-    camera: mapCam.codeWall,
-    form: 'punch',
-    title: title === 'LLM Providers' ? 'LLM Providers?' : title, steps: 1,
-  }, slide] : [slide]
-}).map((slide, index, walls) => {
-  const providerIds = ['tanstack-code-wall', 'tanstack-openrouter-wall', 'tanstack-anthropic-wall', 'tanstack-xai-wall']
-  if (!providerIds.includes(slide.id)) return slide
-  return {
-    ...slide,
-    wallColumns: slide.wallColumns.map((column, side) => ({
-      ...column,
-      fitSources: walls.filter(wall => providerIds.includes(wall.id)).map(wall => wall.wallColumns[side].lines),
-    })),
-  }
-}).map((slide, index, walls) => slide.id === 'python-code-wall' ? {
-  ...slide,
-  wallColumns: [walls.find(wall => wall.id === 'tanstack-xai-wall').wallColumns[0], slide.wallColumns[1]],
-} : slide).flatMap(slide => slide.id === 'python-code-wall' ? [
-  slide,
-  {
-    ...slide,
-    id: 'php-code-wall',
-    title: 'A PHP server streams AG-UI events',
-    wallColumns: [
-      slide.wallColumns[0],
-      {
-        title: 'Server · PHP', lang: 'php',
-        lines: String.raw`<?php
+]
+  .flatMap((slide) =>
+    slide.id === 'tanstack-code-wall'
+      ? [
+          slide,
+          {
+            ...slide,
+            id: 'tanstack-http-wall',
+            title: 'TanStack over HTTP streams',
+            wallColumns: slide.wallColumns.map((column, index) => ({
+              ...column,
+              title:
+                index === 0 ? 'Client · HTTP stream' : 'Server · HTTP stream',
+              lines: column.lines.map((line) =>
+                line
+                  .replaceAll('fetchServerSentEvents', 'fetchHttpStream')
+                  .replaceAll('toServerSentEventsResponse', 'toHttpResponse'),
+              ),
+            })),
+          },
+          {
+            ...slide,
+            id: 'tanstack-websocket-wall',
+            title: 'TanStack over WebSocket',
+            wallColumns: [
+              {
+                title: 'Client · WebSocket',
+                lines: [
+                  "import { useChat } from '@tanstack/ai-react'",
+                  'import { webSocket }',
+                  "  from '@tanstack/ai-client'",
+                  '',
+                  'function ChatForm() {',
+                  '  const { messages, sendMessage } = useChat({',
+                  '    connection:',
+                  "      webSocket('/api/chat'),",
+                  '  })',
+                  '  async function send(data) {',
+                  '    await sendMessage(',
+                  "      String(data.get('prompt'))",
+                  '    )',
+                  '  }',
+                  '  return (',
+                  '    <form action={send}>',
+                  '      <input name="prompt" required />',
+                  '      <button type="submit">Send</button>',
+                  '      {messages.map(message => (',
+                  '        <p key={message.id}>',
+                  '          {message.parts.map(part =>',
+                  "            part.type === 'text'",
+                  "              ? part.content : ''",
+                  "          ).join('')}",
+                  '        </p>',
+                  '      ))}',
+                  '    </form>',
+                  '  )',
+                  '}',
+                ],
+                note: 'TanStack owns run frames and UI state.',
+              },
+              {
+                title: 'Server · WebSocket',
+                lines: [
+                  'import {',
+                  '  chat, toWebSocketStream,',
+                  "} from '@tanstack/ai'",
+                  "import { openaiText } from '@tanstack/ai-openai'",
+                  '',
+                  'export function handleSocket(socket, request) {',
+                  '  toWebSocketStream(socket, request, {',
+                  '    onRun({ messages, threadId, runId }) {',
+                  '      const abortController =',
+                  '        new AbortController()',
+                  '      const stream = chat({',
+                  "        adapter: openaiText('gpt-5.5'),",
+                  '        messages, threadId, runId,',
+                  '        abortController,',
+                  '      })',
+                  '      return stream',
+                  '    },',
+                  '  })',
+                  '}',
+                ],
+                note: 'Host socket upgrade and upstream cancel wiring omitted.',
+              },
+            ],
+          },
+          {
+            ...slide,
+            id: 'python-code-wall',
+            title: 'A Python server speaks the same AG-UI events',
+            wallColumns: [
+              {
+                ...slide.wallColumns[0],
+                title: 'Client · TanStack SSE',
+                note: 'Back to SSE. The same /api/chat route.',
+              },
+              {
+                title: 'Server · Python',
+                lang: 'python',
+                lines: [
+                  'from fastapi import FastAPI',
+                  'from starlette.requests import Request',
+                  'from starlette.responses import Response',
+                  'from pydantic_ai import Agent',
+                  'from pydantic_ai.ui.ag_ui import AGUIAdapter',
+                  '',
+                  'app = FastAPI()',
+                  "agent = Agent('openai:gpt-5.5')",
+                  '',
+                  "@app.post('/api/chat')",
+                  'async def run_agent(',
+                  '    request: Request,',
+                  ') -> Response:',
+                  '    return await AGUIAdapter.dispatch_request(',
+                  '        request,',
+                  '        agent=agent,',
+                  '    )',
+                ],
+                note: 'Pydantic AI · AG-UI. Key/auth/host setup omitted.',
+              },
+            ],
+          },
+        ]
+      : [slide],
+  )
+  .flatMap((slide, index, walls) =>
+    slide.id === 'tanstack-websocket-wall'
+      ? [
+          slide,
+          ...[
+            [
+              'openrouter',
+              'OpenRouter',
+              'openRouterText',
+              'ai-openrouter',
+              'openai/gpt-5.5',
+            ],
+            [
+              'anthropic',
+              'Anthropic',
+              'anthropicText',
+              'ai-anthropic',
+              'claude-fable-5-1',
+            ],
+            ['xai', 'xAI', 'grokText', 'ai-grok', 'grok-4.6'],
+          ].map(([id, provider, factory, packageName, model]) => ({
+            ...slide,
+            id: `tanstack-${id}-wall`,
+            title: `SSE with ${provider}`,
+            wallColumns: [
+              walls.find((wall) => wall.id === 'tanstack-code-wall')
+                .wallColumns[0],
+              {
+                ...walls.find((wall) => wall.id === 'tanstack-code-wall')
+                  .wallColumns[1],
+                title: `Server · ${provider}`,
+                lines: walls
+                  .find((wall) => wall.id === 'tanstack-code-wall')
+                  .wallColumns[1].lines.map((line) =>
+                    line
+                      .replace(
+                        "import { openaiText } from '@tanstack/ai-openai'",
+                        `import { ${factory} } from '@tanstack/${packageName}'`,
+                      )
+                      .replace(
+                        "openaiText('gpt-5.5')",
+                        `${factory}('${model}')`,
+                      ),
+                  ),
+                note: 'Key/auth/validation and disconnect bridge omitted.',
+              },
+            ],
+          })),
+        ]
+      : [slide],
+  )
+  .flatMap((slide) => {
+    const title =
+      slide.id === 'tanstack-code-wall'
+        ? 'Transports'
+        : slide.id === 'tanstack-openrouter-wall'
+          ? 'LLM Providers'
+          : slide.id === 'python-code-wall'
+            ? 'Custom servers?'
+            : null
+    return title
+      ? [
+          {
+            id:
+              title === 'Transports'
+                ? 'protocols'
+                : title === 'LLM Providers'
+                  ? 'llm-providers'
+                  : 'custom-servers',
+            camera: mapCam.codeWall,
+            form: 'punch',
+            title: title === 'LLM Providers' ? 'LLM Providers?' : title,
+            steps: 1,
+          },
+          slide,
+        ]
+      : [slide]
+  })
+  .map((slide, index, walls) => {
+    const providerIds = [
+      'tanstack-code-wall',
+      'tanstack-openrouter-wall',
+      'tanstack-anthropic-wall',
+      'tanstack-xai-wall',
+    ]
+    if (!providerIds.includes(slide.id)) return slide
+    return {
+      ...slide,
+      wallColumns: slide.wallColumns.map((column, side) => ({
+        ...column,
+        fitSources: walls
+          .filter((wall) => providerIds.includes(wall.id))
+          .map((wall) => wall.wallColumns[side].lines),
+      })),
+    }
+  })
+  .map((slide, index, walls) =>
+    slide.id === 'python-code-wall'
+      ? {
+          ...slide,
+          wallColumns: [
+            walls.find((wall) => wall.id === 'tanstack-xai-wall')
+              .wallColumns[0],
+            slide.wallColumns[1],
+          ],
+        }
+      : slide,
+  )
+  .flatMap((slide) =>
+    slide.id === 'python-code-wall'
+      ? [
+          slide,
+          {
+            ...slide,
+            id: 'php-code-wall',
+            title: 'A PHP server streams AG-UI events',
+            wallColumns: [
+              slide.wallColumns[0],
+              {
+                title: 'Server · PHP',
+                lang: 'php',
+                lines: String.raw`<?php
 require __DIR__ . '/vendor/autoload.php';
 require __DIR__ . '/toAGUIEvents.php';
 
@@ -1717,139 +2189,295 @@ return toAGUIEvents(
     $input['threadId'],
     $input['runId']
 );`.split('\n'),
-        note: 'Local utility emits AG-UI SSE. Implementation omitted.',
+                note: 'Local utility emits AG-UI SSE. Implementation omitted.',
+              },
+            ],
+          },
+        ]
+      : [slide],
+  )
+  .flatMap((slide, index, walls) => {
+    if (slide.id !== 'client-tool-flow') return [slide]
+    const baseline = walls.find((wall) => wall.id === 'diy-code-wall')
+    return [
+      slide,
+      {
+        ...baseline,
+        id: 'diy-tools-baseline',
+        title: 'Roll your own: before tools',
       },
-    ],
-  },
-] : [slide]).flatMap((slide, index, walls) => {
-  if (slide.id !== 'client-tool-flow') return [slide]
-  const baseline = walls.find(wall => wall.id === 'diy-code-wall')
-  return [slide,
-    { ...baseline, id: 'diy-tools-baseline', title: 'Roll your own: before tools' },
-    {
-      ...baseline, id: 'diy-tools-wall', title: 'Roll your own: client and server tools',
+      {
+        ...baseline,
+        id: 'diy-tools-wall',
+        title: 'Roll your own: client and server tools',
+        wallColumns: [
+          {
+            title: 'Client · DIY tools',
+            lines: diyToolClient.split('\n'),
+            flowColumns: 3,
+            note: 'One active turn. No retry or reload recovery.',
+          },
+          {
+            title: 'Server · DIY tools',
+            lines: diyToolServer.split('\n'),
+            flowColumns: 3,
+            note: 'Read-only demo. Auth/replay binding and key setup omitted.',
+          },
+        ],
+        notesSteps: [
+          'All helper code is shown. app.tools, app.done, app.error and resume/cache are this demo’s protocol, not OpenAI APIs. Browser carries unsigned pause/cache state. No durable exactly-once execution or automatic retry. Context uses previous_response_id with stored responses. Host links disconnect to request.signal. Fixed allowlists ignore client schema changes. Ten provider responses per turn.',
+        ],
+      },
+      {
+        ...baseline,
+        id: 'tanstack-tools-wall',
+        title: 'The TanStack way: client and server tools',
+        wallColumns: [
+          {
+            title: 'Client · TanStack tools',
+            lines: tanstackToolClient.split('\n'),
+            note: 'TanStack runs client tools and returns results.',
+          },
+          {
+            title: 'Server · TanStack tools',
+            lines: tanstackToolServer.split('\n'),
+            note: 'TanStack runs server tools and resumes the model.',
+          },
+        ],
+        notesSteps: [
+          'Zod defines the input schemas. TanStack runs client and server tools and resumes the model. Server registers both tools but runs only serverTime. Client resume passes parentRunId and resume. Provider credentials and app authentication remain host setup. These are displayed programs, not installed backends.',
+        ],
+      },
+    ]
+  })
+  .flatMap((slide) =>
+    slide.id === 'tanstack-tools-wall'
+      ? [
+          slide,
+          {
+            ...slide,
+            id: 'tanstack-tools-focus',
+            title: 'The tool integration stays small',
+            wallColumns: slide.wallColumns.map((column, side) => ({
+              ...column,
+              decorations: (side === 0
+                ? [[3, 4], [6, 13], 20, [36, 44]]
+                : [2, 5, [7, 11], [13, 17], 27]
+              ).map((lines) => ({
+                lines,
+                className: 'th-line--focused',
+              })),
+            })),
+          },
+        ]
+      : [slide],
+  )
+  .flatMap((slide) => {
+    if (slide.id !== 'tanstack-tools-focus') return [slide]
+    const approvalWall = {
+      ...slide,
+      id: 'tanstack-approvals-wall',
+      title: 'The TanStack way: tool approvals',
       wallColumns: [
-        { title: 'Client · DIY tools', lines: diyToolClient.split('\n'), flowColumns: 3, note: 'One active turn. No retry or reload recovery.' },
-        { title: 'Server · DIY tools', lines: diyToolServer.split('\n'), flowColumns: 3, note: 'Read-only demo. Auth/replay binding and key setup omitted.' },
+        {
+          title: 'Client: TanStack approvals',
+          lines: tanstackApprovalClient.split('\n'),
+          note: 'Your button approves the server tool.',
+        },
+        {
+          title: 'Server: TanStack approvals',
+          lines: tanstackApprovalServer.split('\n'),
+          note: 'The server clock waits for approval before execution.',
+        },
       ],
-      notesSteps: ['All helper code is shown. app.tools, app.done, app.error and resume/cache are this demo’s protocol, not OpenAI APIs. Browser carries unsigned pause/cache state. No durable exactly-once execution or automatic retry. Context uses previous_response_id with stored responses. Host links disconnect to request.signal. Fixed allowlists ignore client schema changes. Ten provider responses per turn.'],
-    },
-    {
-      ...baseline, id: 'tanstack-tools-wall', title: 'The TanStack way: client and server tools',
-      wallColumns: [
-        { title: 'Client · TanStack tools', lines: tanstackToolClient.split('\n'), note: 'TanStack runs client tools and returns results.' },
-        { title: 'Server · TanStack tools', lines: tanstackToolServer.split('\n'), note: 'TanStack runs server tools and resumes the model.' },
+      notesSteps: [
+        'Both sides import the same tool definitions from tools.ts. Only serverTime requires approval. Browser attaches the browser clock handler and registers the server definition. Server attaches the server clock handler and registers the browser definition. The browser clock uses normal client execution. The client finds one tool approval and renders one Approve button. This is a single-approval example. Multi-call batch UI is omitted: a staged first approval can hide a later one. Provider keys, app authentication and disconnect wiring remain host setup.',
       ],
-      notesSteps: ['Zod defines the input schemas. TanStack runs client and server tools and resumes the model. Server registers both tools but runs only serverTime. Client resume passes parentRunId and resume. Provider credentials and app authentication remain host setup. These are displayed programs, not installed backends.'],
-    },
-  ]
-}).flatMap(slide => slide.id === 'tanstack-tools-wall' ? [slide, {
-  ...slide,
-  id: 'tanstack-tools-focus',
-  title: 'The tool integration stays small',
-  wallColumns: slide.wallColumns.map((column, side) => ({
-    ...column,
-    decorations: (side === 0 ? [[3, 4], [6, 13], 20, [36, 44]] : [2, 5, [7, 11], [13, 17], 27]).map(lines => ({
-      lines,
-      className: 'th-line--focused',
-    })),
-  })),
-}] : [slide]).flatMap(slide => {
-  if (slide.id !== 'tanstack-tools-focus') return [slide]
-  const approvalWall = {
-    ...slide,
-    id: 'tanstack-approvals-wall',
-    title: 'The TanStack way: tool approvals',
-    wallColumns: [
-      { title: 'Client: TanStack approvals', lines: tanstackApprovalClient.split('\n'), note: 'Your button approves the server tool.' },
-      { title: 'Server: TanStack approvals', lines: tanstackApprovalServer.split('\n'), note: 'The server clock waits for approval before execution.' },
-    ],
-    notesSteps: ['Both sides import the same tool definitions from tools.ts. Only serverTime requires approval. Browser attaches the browser clock handler and registers the server definition. Server attaches the server clock handler and registers the browser definition. The browser clock uses normal client execution. The client finds one tool approval and renders one Approve button. This is a single-approval example. Multi-call batch UI is omitted: a staged first approval can hide a later one. Provider keys, app authentication and disconnect wiring remain host setup.'],
-  }
-  return [slide, {
-    id: 'tool-approvals-overview', camera: mapCam.overview,
-    form: 'punch', steps: 1,
-    title: 'What if we add tool approvals?',
-    notesSteps: ['Automatic server-tool story: Provider sends a tool call. Server requests approval from Browser. The gate rises after arrival. Browser approves and returns the decision with the payload to Server. Server runs the tool and sends its result to Provider. For a client tool, approval returns to Server first, then Server requests execution on Browser. The provider receives a tool result, not the approval.'],
-  }, {
-    ...approvalWall,
-    id: 'diy-approvals-wall',
-    title: 'Roll your own: tool approvals',
-    wallColumns: [
-      { title: 'Client: DIY approvals', lines: diyApprovalClient.split('\n'), flowColumns: 3, note: 'Complete approval UI, tool loop and SSE reader.' },
-      { title: 'Server: DIY approvals', lines: diyApprovalServer.split('\n'), flowColumns: 3, note: 'Read-only demo. Auth/replay binding and key setup omitted.' },
-    ],
-    notesSteps: ['All helper code is shown. app.approvals, app.tools, app.done and app.error are this demo protocol. Both tools wait before execution. Decisions cover the whole batch. Denial produces an error result without running a handler. Approval returns to Server before Browser receives an execution request. Browser carries unsigned pause/cache state. No authentication, replay binding, durable recovery or automatic retries. These read-only clocks do not demonstrate a production security boundary. Ten provider responses per turn. The host supplies the server-only provider URL/headers and links disconnect to request.signal.'],
-  }, {
-    id: 'tanstack-approval-definitions', camera: mapCam.codeWall,
-    form: 'code', halfPanel: true, lang: 'ts', steps: 1,
-    title: 'tools.ts',
-    lines: tanstackApprovalDefinitions.split('\n'),
-    highlight: [13],
-    note: 'Only the server clock needs approval.',
-  }, approvalWall, {
-    ...approvalWall,
-    id: 'tanstack-approvals-focus',
-    title: 'The approval code stays small',
-    wallColumns: approvalWall.wallColumns.map((column, side) => {
-      const lines = column.lines
-      const focused = lines.flatMap((line, index) =>
-        line.includes("from './tools'") ||
-        (side === 0 && (line.includes('interrupts, resuming,') ||
-          line.includes('disabled={isLoading ||')))
-          ? [index + 1] : [])
-      const toolsStart = lines.indexOf('    tools: [')
-      focused.push([toolsStart + 1, toolsStart + (side === 0 ? 6 : 4)])
-      if (side === 0) {
-        const selectionStart = lines.indexOf('  const approval = interrupts.find(')
-        const uiStart = lines.indexOf('      {approval && (')
-        const uiEnd = lines.indexOf('      {error && <p role="alert">{error.message}</p>}')
-        focused.push([selectionStart + 1, selectionStart + 3], [uiStart + 1, uiEnd])
-      }
-      return {
-        ...column,
-        decorations: focused.map(lines => ({ lines, className: 'th-line--focused' })),
-      }
-    }),
-  }]
-}).flatMap(slide => slide.id === 'mcp-punch' ? [
-  {
-    ...slide,
-    notes: 'Server connects to the trusted read-only MCP server. Browser and Provider do not connect to it. The fourth island appears after the title.',
-  },
-  {
-    id: 'diy-mcp-wall', camera: mapCam.codeWall, form: 'code', codeWall: true,
-    title: 'MCP with DIY', steps: 1,
-    notes: 'Trusted read-only MCP servers with one small tool page. Remote servers validate their tool schemas. Server checks routes, IDs and object arguments. The demo uses unsigned resume state. Auth, replay binding and durable recovery are omitted.',
-    wallColumns: [
-      { title: 'Server', lang: 'js', lines: diyMcpServer.split('\n'), flowColumns: 3, note: 'Unsigned demo. Trusted read-only MCP.' },
-    ],
-  },
-  {
-    id: 'tanstack-mcp-wall', camera: mapCam.codeWall, form: 'code', codeWall: true,
-    title: 'MCP with TanStack AI', steps: 1,
-    wallColumns: [
-      { title: 'Server', lang: 'ts', lines: tanstackMcpServer.split('\n'), decorations: [{ lines: [5, 5], className: 'th-line--focused' }, { lines: [12, 15], className: 'th-line--focused' }, { lines: [24, 24], className: 'th-line--focused' }], note: 'chat discovers remote tools and owns MCP cleanup.' },
-    ],
-  },
-  {
-    id: 'mcp-multiple-punch', camera: mapCam.overview, form: 'punch',
-    title: 'What if we had multiple MCP servers?', steps: 1,
-    notes: 'Two more trusted read-only MCP servers appear. Each connects only to Server. The three names match docs, reference and catalog in the code.',
-  },
-  {
-    id: 'diy-multiple-mcp-wall', camera: mapCam.codeWall, form: 'code', codeWall: true,
-    title: 'Multiple MCP servers with DIY', steps: 1,
-    notes: 'The same unsigned resume demo connects to docs, reference and catalog. Each trusted server exposes one small page of read-only tools. Auth, replay binding and durable recovery are omitted.',
-    wallColumns: [
-      { title: 'Server', lang: 'js', lines: diyMultipleMcpServer.split('\n'), flowColumns: 3, note: 'One route map. Three owned MCP clients.' },
-    ],
-  },
-  {
-    id: 'tanstack-multiple-mcp-wall', camera: mapCam.codeWall, form: 'code', codeWall: true,
-    title: 'An MCP pool with TanStack AI', steps: 1,
-    wallColumns: [
-      { title: 'Server', lang: 'ts', lines: tanstackMultipleMcpServer.split('\n'), decorations: [{ lines: [5, 5], className: 'th-line--focused' }, { lines: [12, 22], className: 'th-line--focused' }, { lines: [31, 31], className: 'th-line--focused' }], note: 'Config keys prefix tool names. chat owns the pool.' },
-    ],
-  },
-] : [slide])
+    }
+    return [
+      slide,
+      {
+        id: 'tool-approvals-overview',
+        camera: mapCam.overview,
+        form: 'punch',
+        steps: 1,
+        title: 'What if we add tool approvals?',
+        notesSteps: [
+          'Automatic server-tool story: Provider sends a tool call. Server requests approval from Browser. The gate rises after arrival. Browser approves and returns the decision with the payload to Server. Server runs the tool and sends its result to Provider. For a client tool, approval returns to Server first, then Server requests execution on Browser. The provider receives a tool result, not the approval.',
+        ],
+      },
+      {
+        ...approvalWall,
+        id: 'diy-approvals-wall',
+        title: 'Roll your own: tool approvals',
+        wallColumns: [
+          {
+            title: 'Client: DIY approvals',
+            lines: diyApprovalClient.split('\n'),
+            flowColumns: 3,
+            note: 'Complete approval UI, tool loop and SSE reader.',
+          },
+          {
+            title: 'Server: DIY approvals',
+            lines: diyApprovalServer.split('\n'),
+            flowColumns: 3,
+            note: 'Read-only demo. Auth/replay binding and key setup omitted.',
+          },
+        ],
+        notesSteps: [
+          'All helper code is shown. app.approvals, app.tools, app.done and app.error are this demo protocol. Both tools wait before execution. Decisions cover the whole batch. Denial produces an error result without running a handler. Approval returns to Server before Browser receives an execution request. Browser carries unsigned pause/cache state. No authentication, replay binding, durable recovery or automatic retries. These read-only clocks do not demonstrate a production security boundary. Ten provider responses per turn. The host supplies the server-only provider URL/headers and links disconnect to request.signal.',
+        ],
+      },
+      {
+        id: 'tanstack-approval-definitions',
+        camera: mapCam.codeWall,
+        form: 'code',
+        halfPanel: true,
+        lang: 'ts',
+        steps: 1,
+        title: 'tools.ts',
+        lines: tanstackApprovalDefinitions.split('\n'),
+        highlight: [13],
+        note: 'Only the server clock needs approval.',
+      },
+      approvalWall,
+      {
+        ...approvalWall,
+        id: 'tanstack-approvals-focus',
+        title: 'The approval code stays small',
+        wallColumns: approvalWall.wallColumns.map((column, side) => {
+          const lines = column.lines
+          const focused = lines.flatMap((line, index) =>
+            line.includes("from './tools'") ||
+            (side === 0 &&
+              (line.includes('interrupts, resuming,') ||
+                line.includes('disabled={isLoading ||')))
+              ? [index + 1]
+              : [],
+          )
+          const toolsStart = lines.indexOf('    tools: [')
+          focused.push([toolsStart + 1, toolsStart + (side === 0 ? 6 : 4)])
+          if (side === 0) {
+            const selectionStart = lines.indexOf(
+              '  const approval = interrupts.find(',
+            )
+            const uiStart = lines.indexOf('      {approval && (')
+            const uiEnd = lines.indexOf(
+              '      {error && <p role="alert">{error.message}</p>}',
+            )
+            focused.push(
+              [selectionStart + 1, selectionStart + 3],
+              [uiStart + 1, uiEnd],
+            )
+          }
+          return {
+            ...column,
+            decorations: focused.map((lines) => ({
+              lines,
+              className: 'th-line--focused',
+            })),
+          }
+        }),
+      },
+    ]
+  })
+  .flatMap((slide) =>
+    slide.id === 'mcp-punch'
+      ? [
+          {
+            ...slide,
+            notes:
+              'Server connects to the trusted read-only MCP server. Browser and Provider do not connect to it. The fourth island appears after the title.',
+          },
+          {
+            id: 'diy-mcp-wall',
+            camera: mapCam.codeWall,
+            form: 'code',
+            codeWall: true,
+            title: 'MCP with DIY',
+            steps: 1,
+            notes:
+              'Trusted read-only MCP servers with one small tool page. Remote servers validate their tool schemas. Server checks routes, IDs and object arguments. The demo uses unsigned resume state. Auth, replay binding and durable recovery are omitted.',
+            wallColumns: [
+              {
+                title: 'Server',
+                lang: 'js',
+                lines: diyMcpServer.split('\n'),
+                flowColumns: 3,
+                note: 'Unsigned demo. Trusted read-only MCP.',
+              },
+            ],
+          },
+          {
+            id: 'tanstack-mcp-wall',
+            camera: mapCam.codeWall,
+            form: 'code',
+            codeWall: true,
+            title: 'MCP with TanStack AI',
+            steps: 1,
+            wallColumns: [
+              {
+                title: 'Server',
+                lang: 'ts',
+                lines: tanstackMcpServer.split('\n'),
+                decorations: [
+                  { lines: [5, 5], className: 'th-line--focused' },
+                  { lines: [12, 15], className: 'th-line--focused' },
+                  { lines: [24, 24], className: 'th-line--focused' },
+                ],
+                note: 'chat discovers remote tools and owns MCP cleanup.',
+              },
+            ],
+          },
+          {
+            id: 'mcp-multiple-punch',
+            camera: mapCam.overview,
+            form: 'punch',
+            title: 'What if we had multiple MCP servers?',
+            steps: 1,
+            notes:
+              'Two more trusted read-only MCP servers appear. Each connects only to Server. The three names match docs, reference and catalog in the code.',
+          },
+          {
+            id: 'diy-multiple-mcp-wall',
+            camera: mapCam.codeWall,
+            form: 'code',
+            codeWall: true,
+            title: 'Multiple MCP servers with DIY',
+            steps: 1,
+            notes:
+              'The same unsigned resume demo connects to docs, reference and catalog. Each trusted server exposes one small page of read-only tools. Auth, replay binding and durable recovery are omitted.',
+            wallColumns: [
+              {
+                title: 'Server',
+                lang: 'js',
+                lines: diyMultipleMcpServer.split('\n'),
+                flowColumns: 3,
+                note: 'One route map. Three owned MCP clients.',
+              },
+            ],
+          },
+          {
+            id: 'tanstack-multiple-mcp-wall',
+            camera: mapCam.codeWall,
+            form: 'code',
+            codeWall: true,
+            title: 'An MCP pool with TanStack AI',
+            steps: 1,
+            wallColumns: [
+              {
+                title: 'Server',
+                lang: 'ts',
+                lines: tanstackMultipleMcpServer.split('\n'),
+                decorations: [
+                  { lines: [5, 5], className: 'th-line--focused' },
+                  { lines: [12, 22], className: 'th-line--focused' },
+                  { lines: [31, 31], className: 'th-line--focused' },
+                ],
+                note: 'Config keys prefix tool names. chat owns the pool.',
+              },
+            ],
+          },
+        ]
+      : [slide],
+  )

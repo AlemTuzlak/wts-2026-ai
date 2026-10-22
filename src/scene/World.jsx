@@ -13,9 +13,16 @@ export function World() {
 
   return (
     <>
-      <fog attach="fog" args={[shack ? colors.skyShack : colors.skyMap, shack ? 18 : 55, shack ? 90 : 160]} />
-      <ambientLight intensity={shack ? .5 : .7} />
-      <hemisphereLight args={['#fff2d4', '#77765d', shack ? .7 : 1.5]} />
+      <fog
+        attach="fog"
+        args={[
+          shack ? colors.skyShack : colors.skyMap,
+          shack ? 18 : 55,
+          shack ? 90 : 160,
+        ]}
+      />
+      <ambientLight intensity={shack ? 0.5 : 0.7} />
+      <hemisphereLight args={['#fff2d4', '#77765d', shack ? 0.7 : 1.5]} />
       <primitive object={target} />
       <directionalLight
         position={shack ? [-4, 8, -6] : [-18, -25, -15]}
@@ -30,9 +37,11 @@ export function World() {
         shadow-camera-right={35}
         shadow-camera-top={35}
         shadow-camera-bottom={-35}
-        shadow-normalBias={.025}
+        shadow-normalBias={0.025}
       />
-      {shack ? <pointLight position={[0, 2, 2]} intensity={4.5} color="#fff1d5" /> : null}
+      {shack ? (
+        <pointLight position={[0, 2, 2]} intensity={4.5} color="#fff1d5" />
+      ) : null}
       <Shack />
       <MapWorld />
     </>

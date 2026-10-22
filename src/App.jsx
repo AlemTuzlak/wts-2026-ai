@@ -11,7 +11,12 @@ import { colors, shackSlides } from './scene/layout.js'
 function SkyColor() {
   const id = useTalk((s) => s.slides[s.sceneIndex ?? s.index].id)
   const shack = shackSlides.has(id)
-  return <color attach="background" args={[shack ? colors.skyShack : colors.skyMap]} />
+  return (
+    <color
+      attach="background"
+      args={[shack ? colors.skyShack : colors.skyMap]}
+    />
+  )
 }
 
 export function App() {
